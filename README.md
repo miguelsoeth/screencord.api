@@ -13,6 +13,7 @@ Sistema com dois componentes:
 - Perfil via `GET /users/@me`: nome de exibição, nome de usuário, ID, avatar e URL do avatar.
 - **Cadastro automático**: ao conectar, o app faz login na API central, que cria o usuário (ou atualiza nome e avatar) com os dados confirmados pelo Discord.
 - **Amigos no sistema**: buscar usuários por nome (`@fulano`), enviar solicitação, aceitar, recusar, cancelar e remover amigo.
+- **Grupos (salas de presença em tempo real)**: lista compacta na lateral direita, uma linha por grupo com nome, indicador de conexão e a contagem `conectados/integrantes` (ex.: `1/2`). Quem está conectado aparece listado (foto e nome) logo abaixo do grupo; a seta à esquerda recolhe ou expande essa lista. Clicar no nome conecta você à sala; clicar na contagem abre os integrantes (foto, nome e quem está conectado) e permite adicionar amigos. Qualquer integrante adiciona os próprios amigos. Entradas e saídas aparecem na hora para todos. Por enquanto os grupos são só presença: sem chat, voz ou compartilhamento de tela.
 - Sessão do Discord reutilizada entre execuções (tokens cifrados com DPAPI), com renovação automática.
 - Tratamento de falta de conexão, timeout, token inválido, autorização negada, HTTP 429 e indisponibilidade — tanto do Discord quanto da API central.
 
@@ -101,6 +102,8 @@ dotnet run --project src/ScreenCord
 
 Sem a API no ar, o perfil continua funcionando e a seção "Amigos" mostra um erro com o botão "Tentar novamente".
 
+Para testar os grupos em tempo real, abra duas instâncias do aplicativo com contas diferentes que sejam amigas, crie um grupo em uma, adicione a outra pela contagem de integrantes e clique no nome do grupo nas duas.
+
 Para testar a amizade entre duas contas na mesma máquina, entre com a primeira, clique em **Desconectar**, entre com a segunda, busque a primeira pelo nome de usuário e envie a solicitação.
 
 ## 4. Executar os testes
@@ -158,23 +161,43 @@ Todas as rotas, exceto `/health` e `/auth/discord`, exigem `Authorization: Beare
 | `POST /friends/requests` | Corpo `{ "userId": "<guid>" }`. Envia a solicitação; se a outra pessoa já tinha pedido, confirma a amizade. |
 | `POST /friends/requests/{userId}/accept` | Aceita a solicitação recebida de `userId`. |
 | `DELETE /friends/requests/{userId}` | Recusa uma solicitação recebida ou cancela uma enviada. |
+| `GET /groups` | Seus grupos, com `memberCount`, `connectedUsers` (id, nome e avatar de quem está na sala) e `presenceVersion`. |
+| `POST /groups` | Corpo `{ "name": "..." }` (1 a 40 caracteres). Cria o grupo com você como integrante. |
+| `GET /groups/{groupId}` | Integrantes, cada um com `isConnected`. Só para integrantes. |
+| `POST /groups/{groupId}/members` | Corpo `{ "userId": "<guid>" }`. Adiciona um amigo seu (limite de 50 integrantes). |
+| `DELETE /groups/{groupId}/members/me` | Sai do grupo; o grupo é apagado quando o último integrante sai. |
 
 `relationship` é `None`, `Friend`, `PendingOutgoing` ou `PendingIncoming`. Erros retornam `{ "code": "...", "message": "..." }`.
+
+### Tempo real (SignalR)
+
+O hub `/hubs/groups` mantém uma conexão persistente (WebSocket, com fallback automático do SignalR), autenticada com o mesmo token de sessão no cabeçalho `Authorization` — o token nunca vai na URL.
+
+| Mensagem | Direção | Descrição |
+|---|---|---|
+| `JoinGroup(groupId)` | app → API | Entra na sala (saindo da anterior). Retorna a presença atual, ou `null` se você não for integrante. |
+| `LeaveGroup()` | app → API | Sai da sala atual. Fechar a conexão tem o mesmo efeito. |
+| `PresenceChanged(presence)` | API → app | `{ groupId, connectedUsers, version }`, enviado a todos os integrantes a cada entrada ou saída. |
+| `GroupChanged(group)` | API → app | Grupo criado ou com integrantes alterados (inclusive para quem acabou de ser adicionado). |
+| `GroupRemoved(groupId)` | API → app | Você saiu do grupo (avisa as suas outras janelas). |
+
+`version` cresce a cada mudança de presença; o app descarta notificações mais antigas que a última aplicada, então mensagens fora de ordem não deixam a lista errada. Ao reconectar, o app recarrega os grupos e volta para a sala em que estava. A presença fica em memória numa instância da API; para rodar várias instâncias seria preciso um backplane (ex.: Redis).
 
 ## Arquitetura
 
 ```
 src/ScreenCord            Aplicativo WPF
 ├── Models/          DTOs do Discord e modelos de exibição
-├── Services/        OAuth2, API do Discord, perfil, cliente da API central (FriendsService)
+├── Services/        OAuth2, API do Discord, perfil, cliente da API central (amigos, grupos) e conexão SignalR
 ├── Security/        PKCE, sessão do Discord e armazenamento DPAPI
 ├── Infrastructure/  Opções, DI, erros centralizados, rate limit, navegador
 ├── ViewModels/      Estado e comandos (MVVM)
 ├── Views/ Themes/   Janela e tema escuro
 src/ScreenCord.Api        API central
 ├── Auth/            Verificação do token do Discord e autenticação por sessão
-├── Data/            EF Core: Users, Friendships, Sessions
-└── Endpoints/       Rotas de login, busca e amizades
+├── Data/            EF Core: Users, Friendships, Sessions, Groups, GroupMembers
+├── Endpoints/       Rotas de login, busca, amizades e grupos
+└── Realtime/        Hub SignalR de grupos e rastreador de presença
 src/ScreenCord.Contracts  DTOs compartilhados entre app e API
 tests/ScreenCord.Tests, tests/ScreenCord.Api.Tests
 ```

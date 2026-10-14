@@ -66,6 +66,30 @@ public sealed class Session
     public DateTimeOffset ExpiresAtUtc { get; set; }
 }
 
+/// <summary>Sala de presença criada por um usuário; cresce conforme os integrantes adicionam amigos.</summary>
+public sealed class Group
+{
+    public Guid Id { get; set; }
+
+    public required string Name { get; set; }
+
+    public Guid CreatedById { get; set; }
+
+    public DateTimeOffset CreatedAtUtc { get; set; }
+}
+
+public sealed class GroupMember
+{
+    public Guid GroupId { get; set; }
+
+    public Guid UserId { get; set; }
+
+    /// <summary>Integrante que adicionou esta pessoa (o próprio criador, no caso dele).</summary>
+    public Guid AddedById { get; set; }
+
+    public DateTimeOffset AddedAtUtc { get; set; }
+}
+
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
     public DbSet<User> Users => Set<User>();
@@ -73,6 +97,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Friendship> Friendships => Set<Friendship>();
 
     public DbSet<Session> Sessions => Set<Session>();
+
+    public DbSet<Group> Groups => Set<Group>();
+
+    public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -101,6 +129,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             session.HasIndex(s => s.TokenHash).IsUnique();
             session.Property(s => s.TokenHash).HasMaxLength(64);
             session.HasOne<User>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Group>(group =>
+        {
+            group.Property(g => g.Name).HasMaxLength(ScreenCord.Contracts.GroupsHubContract.MaxNameLength);
+        });
+
+        modelBuilder.Entity<GroupMember>(member =>
+        {
+            member.HasKey(m => new { m.GroupId, m.UserId });
+            member.HasIndex(m => m.UserId);
+            member.HasOne<Group>().WithMany().HasForeignKey(m => m.GroupId).OnDelete(DeleteBehavior.Cascade);
+            member.HasOne<User>().WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

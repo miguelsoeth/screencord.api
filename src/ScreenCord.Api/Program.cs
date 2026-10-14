@@ -4,6 +4,8 @@ using ScreenCord.Api;
 using ScreenCord.Api.Auth;
 using ScreenCord.Api.Data;
 using ScreenCord.Api.Endpoints;
+using ScreenCord.Api.Realtime;
+using ScreenCord.Contracts;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 
@@ -29,6 +31,11 @@ builder.Services
 builder.Services.AddAuthorization();
 builder.Services.AddScreenCordOpenApi();
 
+// Conexões persistentes para a presença nos grupos. O rastreador fica em memória (uma instância da API).
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<GroupPresence>();
+builder.Services.AddSingleton<GroupNotifier>();
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -50,8 +57,8 @@ var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
-    // Cria o banco na primeira execução. Para evoluir o esquema em produção, troque por migrações do EF Core.
-    scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.EnsureCreated();
+    // Cria o banco (ou as tabelas novas). Para evoluir o esquema em produção, troque por migrações do EF Core.
+    DatabaseSchema.Ensure(scope.ServiceProvider.GetRequiredService<AppDbContext>());
 }
 
 app.MapScreenCordOpenApi();
@@ -63,6 +70,8 @@ app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).WithTags("Infra").WithSummary("Verificação de disponibilidade");
 app.MapAuthEndpoints();
 app.MapFriendEndpoints();
+app.MapGroupEndpoints();
+app.MapHub<GroupsHub>(GroupsHubContract.Path).RequireAuthorization();
 
 app.Run();
 
