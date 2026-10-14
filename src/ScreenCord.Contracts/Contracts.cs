@@ -187,7 +187,7 @@ public static class GroupsHubContract
 
     public const int MaxNameLength = 40;
 
-    public const int MaxMembers = 50;
+    public const int MaxMembers = 20;
 
     /// <summary>Cliente → servidor: entra na sala do grupo (sai da anterior). Retorna a presença atual ou null se não for integrante.</summary>
     public const string JoinGroup = "JoinGroup";

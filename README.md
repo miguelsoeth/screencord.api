@@ -166,7 +166,7 @@ Todas as rotas, exceto `/health` e `/auth/discord`, exigem `Authorization: Beare
 | `GET /groups` | Seus grupos, com `memberCount`, `connectedUsers` (id, nome e avatar de quem está na sala) e `presenceVersion`. |
 | `POST /groups` | Corpo `{ "name": "..." }` (1 a 40 caracteres). Cria o grupo com você como integrante. |
 | `GET /groups/{groupId}` | Integrantes, cada um com `isConnected`. Só para integrantes. |
-| `POST /groups/{groupId}/members` | Corpo `{ "userId": "<guid>" }`. Adiciona um amigo seu (limite de 50 integrantes). |
+| `POST /groups/{groupId}/members` | Corpo `{ "userId": "<guid>" }`. Adiciona um amigo seu (limite de 20 integrantes). |
 | `DELETE /groups/{groupId}/members/me` | Sai do grupo; o grupo é apagado quando o último integrante sai. |
 
 `relationship` é `None`, `Friend`, `PendingOutgoing` ou `PendingIncoming`. Erros retornam `{ "code": "...", "message": "..." }`.
@@ -204,6 +204,7 @@ Opus (áudio por processo)─┘                             (uma fila por espec
 - **Áudio**: Opus 48 kHz estéreo a 128 kbps, em pacotes de 20 ms. Tela inteira: tudo o que toca no computador **menos o próprio ScreenCord** (quem compartilha e também assiste alguém não devolve o áudio da outra pessoa). Janela: só o áudio do programa dono da janela (e dos processos filhos dele, ex.: navegadores). Usa a captura de áudio por processo do Windows 10 2004+; em versões anteriores, a tela inteira captura o dispositivo padrão inteiro e a janela fica sem áudio.
 - **Canal de mídia**: um WebSocket por compartilhamento em `/media/{groupId}/{sharerId}`, autenticado pelo mesmo cabeçalho `Authorization` (o token nunca vai na URL). Quem compartilha conecta no próprio id depois de `StartScreenShare` (antes disso recebe 409); quem assiste conecta no id de quem compartilha e precisa estar na sala (403 se não estiver). Cada mensagem binária é um pacote: 1 byte de tipo (1 vídeo, 2 áudio, 3 pedido de quadro-chave), 1 byte de flags (bit 0 = quadro-chave), 8 bytes de carimbo de tempo em µs (little-endian) e o conteúdo. Vídeo vai em H.264 Annex B com SPS/PPS antes de cada quadro-chave; pacotes acima de 4 MB são recusados.
 - **Rede lenta**: a API mantém uma fila por espectador com cerca de 1 s de vídeo. Se ela enche, o espectador perde quadros até o próximo quadro-chave (pedido na hora) em vez de acumular atraso, sem afetar os outros. Do lado de quem compartilha vale o mesmo para a fila de envio. Quem assiste e fica sem imagem pede outro quadro-chave sozinho.
+- **Bitrate adaptativo**: a qualidade escolhida é o teto. Se a fila de envio de quem compartilha não esvazia (ou estoura), a taxa do encoder cai 30% (até 1/5 da escolhida) e volta a subir aos poucos quando a rede folga. Só olha a conexão de quem compartilha: um espectador com rede ruim continua perdendo quadros sem baixar a qualidade dos outros.
 
 Limitações: a mídia passa pela API, então o tráfego de saída do servidor é a taxa escolhida vezes o número de espectadores (ex.: 5000 kbps para 4 pessoas ≈ 20 Mbps). Para muitos espectadores, o caminho seria WebRTC com um SFU. Conteúdo protegido (ex.: vídeos com DRM em alguns navegadores) aparece preto, como em qualquer captura do Windows. Janelas minimizadas não geram imagem até serem restauradas.
 
