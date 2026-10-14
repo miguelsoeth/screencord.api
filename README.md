@@ -75,6 +75,18 @@ Opções da API:
 
 ## 3. Executar em modo Debug
 
+### Painel de desenvolvimento (recomendado)
+
+```bash
+powershell -ExecutionPolicy Bypass -File .\screencord.ps1
+```
+
+Menu navegável com as setas (↑/↓, Enter, Esc) para subir, parar e recompilar a API e o app, acompanhar os logs ao vivo e rodar os testes. Os processos rodam em segundo plano e continuam vivos ao fechar o menu; PIDs e logs ficam em `.screencord/`.
+
+Também aceita ações diretas: `status`, `start-api`, `stop-api`, `start-app`, `stop-app`, `start-all`, `stop-all`, `build`, `rebuild`, `test`, `logs-api`, `logs-app`. Exemplo: `.\screencord.ps1 start-all`.
+
+### Manualmente
+
 Em um terminal, a API (fica em `http://localhost:5080`; o banco é criado na primeira execução):
 
 ```bash
@@ -123,6 +135,13 @@ Antes de expor a API fora da sua máquina:
 - Faça backup do arquivo `screencord.db`.
 
 ## API central
+
+Com a API rodando em Development (o padrão do `screencord.ps1` e do `dotnet run`), a documentação interativa fica em:
+
+- Swagger UI: <http://localhost:5080/swagger>
+- Documento OpenAPI: <http://localhost:5080/openapi/v1.json>
+
+Fora de Development as duas rotas não são publicadas.
 
 Todas as rotas, exceto `/health` e `/auth/discord`, exigem `Authorization: Bearer <token de sessão>`.
 

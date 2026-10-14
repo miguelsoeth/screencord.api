@@ -12,15 +12,42 @@ public static class FriendEndpoints
 
     public static void MapFriendEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("").RequireAuthorization();
+        var users = app.MapGroup("").RequireAuthorization().WithTags("Usuários");
+        users.MapGet("/users/search", SearchUsersAsync)
+            .WithSummary("Busca usuários por nome de usuário ou de exibição")
+            .WithDescription($"Mínimo de {MinSearchLength} caracteres; o \"@\" inicial é ignorado. Retorna até {MaxSearchResults} usuários com a relação de cada um com você.")
+            .Produces<List<UserDto>>()
+            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest);
 
-        group.MapGet("/users/search", SearchUsersAsync);
-        group.MapGet("/friends", GetFriendsAsync);
-        group.MapDelete("/friends/{userId:guid}", RemoveFriendAsync);
-        group.MapGet("/friends/requests", GetRequestsAsync);
-        group.MapPost("/friends/requests", SendRequestAsync);
-        group.MapPost("/friends/requests/{userId:guid}/accept", AcceptRequestAsync);
-        group.MapDelete("/friends/requests/{userId:guid}", DeleteRequestAsync);
+        var friends = app.MapGroup("").RequireAuthorization().WithTags("Amigos");
+        friends.MapGet("/friends", GetFriendsAsync)
+            .WithSummary("Lista os amigos confirmados")
+            .Produces<List<UserDto>>();
+        friends.MapDelete("/friends/{userId:guid}", RemoveFriendAsync)
+            .WithSummary("Desfaz a amizade")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
+
+        var requests = app.MapGroup("").RequireAuthorization().WithTags("Solicitações de amizade");
+        requests.MapGet("/friends/requests", GetRequestsAsync)
+            .WithSummary("Lista as solicitações recebidas e enviadas")
+            .Produces<FriendRequestsResponse>();
+        requests.MapPost("/friends/requests", SendRequestAsync)
+            .WithSummary("Envia uma solicitação de amizade")
+            .WithDescription("Se a outra pessoa já tinha enviado uma solicitação, a amizade é confirmada na hora.")
+            .Produces<UserDto>()
+            .Produces<UserDto>(StatusCodes.Status201Created)
+            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorResponse>(StatusCodes.Status404NotFound)
+            .Produces<ErrorResponse>(StatusCodes.Status409Conflict);
+        requests.MapPost("/friends/requests/{userId:guid}/accept", AcceptRequestAsync)
+            .WithSummary("Aceita a solicitação recebida de um usuário")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
+        requests.MapDelete("/friends/requests/{userId:guid}", DeleteRequestAsync)
+            .WithSummary("Recusa uma solicitação recebida ou cancela uma enviada")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
     }
 
     /// <summary>Busca usuários do sistema por nome de usuário ou nome de exibição (o "@" inicial é ignorado).</summary>

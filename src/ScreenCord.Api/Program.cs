@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Threading.RateLimiting;
+using ScreenCord.Api;
 using ScreenCord.Api.Auth;
 using ScreenCord.Api.Data;
 using ScreenCord.Api.Endpoints;
@@ -26,6 +27,7 @@ builder.Services
     .AddAuthentication(SessionTokens.Scheme)
     .AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(SessionTokens.Scheme, null);
 builder.Services.AddAuthorization();
+builder.Services.AddScreenCordOpenApi();
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -52,11 +54,13 @@ using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.EnsureCreated();
 }
 
+app.MapScreenCordOpenApi();
+
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/health", () => Results.Ok(new { status = "ok" })).WithTags("Infra").WithSummary("Verificação de disponibilidade");
 app.MapAuthEndpoints();
 app.MapFriendEndpoints();
 

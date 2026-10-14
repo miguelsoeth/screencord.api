@@ -490,3 +490,6 @@ publish/
 *.db
 *.db-shm
 *.db-wal
+
+# Estado e logs do painel screencord.ps1
+.screencord/

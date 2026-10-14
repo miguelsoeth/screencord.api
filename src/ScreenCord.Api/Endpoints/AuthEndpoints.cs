@@ -11,9 +11,26 @@ public static class AuthEndpoints
 
     public static void MapAuthEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapPost("/auth/discord", LoginWithDiscordAsync).RequireRateLimiting(LoginRateLimitPolicy);
-        app.MapPost("/auth/logout", LogoutAsync).RequireAuthorization();
-        app.MapGet("/me", GetMeAsync).RequireAuthorization();
+        var auth = app.MapGroup("").WithTags("Autenticação");
+
+        auth.MapPost("/auth/discord", LoginWithDiscordAsync)
+            .RequireRateLimiting(LoginRateLimitPolicy)
+            .WithSummary("Entra com um access token do Discord")
+            .WithDescription("Confirma o token com o Discord (GET /oauth2/@me), cria ou atualiza o usuário e devolve um token de sessão desta API.")
+            .Produces<LoginResponse>()
+            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
+            .Produces<ErrorResponse>(StatusCodes.Status503ServiceUnavailable);
+
+        auth.MapPost("/auth/logout", LogoutAsync)
+            .RequireAuthorization()
+            .WithSummary("Encerra a sessão atual")
+            .Produces(StatusCodes.Status204NoContent);
+
+        auth.MapGet("/me", GetMeAsync)
+            .RequireAuthorization()
+            .WithSummary("Usuário da sessão")
+            .Produces<UserDto>();
     }
 
     /// <summary>
