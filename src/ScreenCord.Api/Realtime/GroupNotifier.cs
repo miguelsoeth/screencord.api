@@ -57,7 +57,7 @@ public static class GroupQueries
         }
 
         var snapshot = await PresenceAsync(db, presence, group.Id, cancellationToken);
-        return new GroupDto(group.Id, group.Name, group.Count, snapshot.ConnectedUsers, snapshot.Version);
+        return new GroupDto(group.Id, group.Name, group.Count, snapshot.ConnectedUsers, snapshot.Version, snapshot.ScreenShares);
     }
 
     public static async Task<GroupPresenceDto> PresenceAsync(AppDbContext db, GroupPresence presence, Guid groupId, CancellationToken cancellationToken) =>
@@ -86,7 +86,8 @@ public static class GroupQueries
                     .OrderBy(u => u.GlobalName ?? u.Username, StringComparer.CurrentCultureIgnoreCase)
                     .Select(u => new PresenceUserDto(u.Id, u.DiscordId, u.Username, u.GlobalName, u.Discriminator, u.AvatarHash))
                     .ToList(),
-                s.Version));
+                s.Version,
+                s.Shares.Where(share => users.ContainsKey(share.UserId)).ToList()));
     }
 
     public static Task<bool> IsMemberAsync(AppDbContext db, Guid groupId, Guid userId, CancellationToken cancellationToken) =>

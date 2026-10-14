@@ -13,13 +13,14 @@ Sistema com dois componentes:
 - Perfil via `GET /users/@me`: nome de exibição, nome de usuário, ID, avatar e URL do avatar.
 - **Cadastro automático**: ao conectar, o app faz login na API central, que cria o usuário (ou atualiza nome e avatar) com os dados confirmados pelo Discord.
 - **Amigos no sistema**: buscar usuários por nome (`@fulano`), enviar solicitação, aceitar, recusar, cancelar e remover amigo.
-- **Grupos (salas de presença em tempo real)**: lista compacta na lateral direita, uma linha por grupo com nome, indicador de conexão e a contagem `conectados/integrantes` (ex.: `1/2`). Quem está conectado aparece listado (foto e nome) logo abaixo do grupo; a seta à esquerda recolhe ou expande essa lista. Clicar no nome conecta você à sala; clicar na contagem abre os integrantes (foto, nome e quem está conectado) e permite adicionar amigos. Qualquer integrante adiciona os próprios amigos. Entradas e saídas aparecem na hora para todos. Por enquanto os grupos são só presença: sem chat, voz ou compartilhamento de tela.
+- **Grupos (salas de presença em tempo real)**: lista compacta na lateral direita, uma linha por grupo com nome, indicador de conexão e a contagem `conectados/integrantes` (ex.: `1/2`). Quem está conectado aparece listado (foto e nome) logo abaixo do grupo; a seta à esquerda recolhe ou expande essa lista. Clicar no nome conecta você à sala; clicar na contagem abre os integrantes (foto, nome e quem está conectado) e permite adicionar amigos. Qualquer integrante adiciona os próprios amigos. Entradas e saídas aparecem na hora para todos.
+- **Compartilhamento de tela**: na sala em que você está, o botão de compartilhar (ao lado de "Sair da sala") abre a escolha de **tela inteira ou janela**, **resolução** (540p, 720p, 1080p), **taxa de quadros** (30 ou 60 fps), **qualidade** (baixo 2000 kbps, médio 4000 kbps, alto 5000 kbps) e **compartilhar áudio** ou não. O padrão é 720p, 30 fps, médio, com áudio; a última escolha é lembrada enquanto o app está aberto. Quem compartilha aparece com o selo **AO VIVO** na lista de conectados; clicar nele abre a transmissão numa janela própria (tela cheia com F11 ou duplo clique, volume e mudo). Clicar em AO VIVO de outro grupo entra na sala dele antes. Sair da sala, trocar de sala ou perder a conexão encerra o compartilhamento e fecha as janelas de quem você assistia.
 - Sessão do Discord reutilizada entre execuções (tokens cifrados com DPAPI), com renovação automática.
 - Tratamento de falta de conexão, timeout, token inválido, autorização negada, HTTP 429 e indisponibilidade — tanto do Discord quanto da API central.
 
 ## Requisitos
 
-- Windows 10/11 x64 (aplicativo). A API roda em qualquer sistema com .NET 10.
+- Windows 10 (versão 2004 ou mais recente) ou Windows 11, x64 (aplicativo). A API roda em qualquer sistema com .NET 10.
 - [.NET SDK 10](https://dotnet.microsoft.com/download/dotnet/10.0)
 
 ## 1. Configurar o aplicativo no Discord Developer Portal
@@ -102,7 +103,7 @@ dotnet run --project src/ScreenCord
 
 Sem a API no ar, o perfil continua funcionando e a seção "Amigos" mostra um erro com o botão "Tentar novamente".
 
-Para testar os grupos em tempo real, abra duas instâncias do aplicativo com contas diferentes que sejam amigas, crie um grupo em uma, adicione a outra pela contagem de integrantes e clique no nome do grupo nas duas.
+Para testar os grupos em tempo real, abra duas instâncias do aplicativo com contas diferentes que sejam amigas, crie um grupo em uma, adicione a outra pela contagem de integrantes e clique no nome do grupo nas duas. Para testar o compartilhamento de tela, clique no botão de compartilhar em uma delas e no selo AO VIVO na outra.
 
 Para testar a amizade entre duas contas na mesma máquina, entre com a primeira, clique em **Desconectar**, entre com a segunda, busque a primeira pelo nome de usuário e envie a solicitação.
 
@@ -112,7 +113,7 @@ Para testar a amizade entre duas contas na mesma máquina, entre com a primeira,
 dotnet test ScreenCord.sln
 ```
 
-Nenhum teste acessa o Discord: as respostas são simuladas. Os testes da API sobem o servidor real em memória, com SQLite em memória.
+Nenhum teste acessa o Discord: as respostas são simuladas. Os testes da API sobem o servidor real em memória, com SQLite em memória. Os testes de mídia codificam e decodificam vídeo de verdade com o Media Foundation do Windows (usando o encoder de hardware, se houver).
 
 ## 5. Publicar
 
@@ -133,6 +134,7 @@ dotnet publish src/ScreenCord.Api -c Release -o publish/api
 Antes de expor a API fora da sua máquina:
 
 - Sirva **somente por HTTPS** (o app recusa `http` que não seja localhost). O token do Discord trafega até a API no login.
+- O proxy reverso precisa repassar WebSockets (`/hubs/groups` e `/media/...`) e não deve guardar as respostas em buffer, senão o vídeo atrasa. Conte com a banda de saída do compartilhamento de tela (taxa × espectadores).
 - Atrás de proxy reverso, configure *forwarded headers*, senão o limite de requisições por IP enxerga só o IP do proxy.
 - O banco é criado com `EnsureCreated`. Para evoluir o esquema sem perder dados, adote migrações do EF Core. Para mais de uma instância, troque o SQLite por um banco servidor.
 - Faça backup do arquivo `screencord.db`.
@@ -180,15 +182,38 @@ O hub `/hubs/groups` mantém uma conexão persistente (WebSocket, com fallback a
 | `PresenceChanged(presence)` | API → app | `{ groupId, connectedUsers, version }`, enviado a todos os integrantes a cada entrada ou saída. |
 | `GroupChanged(group)` | API → app | Grupo criado ou com integrantes alterados (inclusive para quem acabou de ser adicionado). |
 | `GroupRemoved(groupId)` | API → app | Você saiu do grupo (avisa as suas outras janelas). |
+| `StartScreenShare(start)` | app → API | `{ width, height, frameRate, bitrateKbps, hasAudio }`. Começa a compartilhar na sala atual; retorna `{ userId, width, height, frameRate, bitrateKbps, hasAudio }`, ou `null` se a conexão não estiver numa sala ou a configuração não for uma das opções (altura até 1080, 30/60 fps, 2000/4000/5000 kbps). |
+| `StopScreenShare()` | app → API | Encerra o compartilhamento desta conexão. Sair da sala, trocar de sala ou desconectar também encerra. |
 
-`version` cresce a cada mudança de presença; o app descarta notificações mais antigas que a última aplicada, então mensagens fora de ordem não deixam a lista errada. Ao reconectar, o app recarrega os grupos e volta para a sala em que estava. A presença fica em memória numa instância da API; para rodar várias instâncias seria preciso um backplane (ex.: Redis).
+A presença (`PresenceChanged` e os grupos de `GET /groups`) traz também `screenShares`: quem está compartilhando na sala e com que configuração.
+
+`version` cresce a cada mudança de presença (inclusive início e fim de compartilhamento); o app descarta notificações mais antigas que a última aplicada, então mensagens fora de ordem não deixam a lista errada. Ao reconectar, o app recarrega os grupos e volta para a sala em que estava. A presença fica em memória numa instância da API; para rodar várias instâncias seria preciso um backplane (ex.: Redis).
+
+### Compartilhamento de tela
+
+```
+quem compartilha                          API                              quem assiste
+Windows Graphics Capture ─┐
+  (tela ou janela)        │ GPU: BGRA → NV12, escala   WebSocket /media/{grupo}/{id}   WebSocket /media/{grupo}/{id}
+H.264 (Media Foundation) ─┼──────────────────────────► repasse sem decodificar ───────► H.264 → BGRA → janela
+Opus (áudio por processo)─┘                             (uma fila por espectador)         Opus → WASAPI
+```
+
+- **Captura**: Windows Graphics Capture (tela ou janela, com o cursor; no Windows 11, sem a borda amarela). A conversão para NV12 e a mudança de tamanho são feitas na GPU (processador de vídeo do Direct3D 11). A largura segue a proporção da tela ou janela; a altura é a resolução escolhida, sem ampliar origens menores. Se a janela mudar de tamanho, a imagem é encaixada com faixas pretas.
+- **Vídeo**: H.264 com taxa de bits constante, baixa latência e sem quadros B, pelo encoder de hardware da placa (NVIDIA, Intel, AMD) quando existe, com o encoder por software do Windows como alternativa. Quadro-chave a cada 4 s e **sob demanda**: quando alguém começa a assistir, a API pede um quadro-chave a quem compartilha, e a imagem aparece em uma fração de segundo.
+- **Áudio**: Opus 48 kHz estéreo a 128 kbps, em pacotes de 20 ms. Tela inteira: tudo o que toca no computador **menos o próprio ScreenCord** (quem compartilha e também assiste alguém não devolve o áudio da outra pessoa). Janela: só o áudio do programa dono da janela (e dos processos filhos dele, ex.: navegadores). Usa a captura de áudio por processo do Windows 10 2004+; em versões anteriores, a tela inteira captura o dispositivo padrão inteiro e a janela fica sem áudio.
+- **Canal de mídia**: um WebSocket por compartilhamento em `/media/{groupId}/{sharerId}`, autenticado pelo mesmo cabeçalho `Authorization` (o token nunca vai na URL). Quem compartilha conecta no próprio id depois de `StartScreenShare` (antes disso recebe 409); quem assiste conecta no id de quem compartilha e precisa estar na sala (403 se não estiver). Cada mensagem binária é um pacote: 1 byte de tipo (1 vídeo, 2 áudio, 3 pedido de quadro-chave), 1 byte de flags (bit 0 = quadro-chave), 8 bytes de carimbo de tempo em µs (little-endian) e o conteúdo. Vídeo vai em H.264 Annex B com SPS/PPS antes de cada quadro-chave; pacotes acima de 4 MB são recusados.
+- **Rede lenta**: a API mantém uma fila por espectador com cerca de 1 s de vídeo. Se ela enche, o espectador perde quadros até o próximo quadro-chave (pedido na hora) em vez de acumular atraso, sem afetar os outros. Do lado de quem compartilha vale o mesmo para a fila de envio. Quem assiste e fica sem imagem pede outro quadro-chave sozinho.
+
+Limitações: a mídia passa pela API, então o tráfego de saída do servidor é a taxa escolhida vezes o número de espectadores (ex.: 5000 kbps para 4 pessoas ≈ 20 Mbps). Para muitos espectadores, o caminho seria WebRTC com um SFU. Conteúdo protegido (ex.: vídeos com DRM em alguns navegadores) aparece preto, como em qualquer captura do Windows. Janelas minimizadas não geram imagem até serem restauradas.
 
 ## Arquitetura
 
 ```
 src/ScreenCord            Aplicativo WPF
 ├── Models/          DTOs do Discord e modelos de exibição
-├── Services/        OAuth2, API do Discord, perfil, cliente da API central (amigos, grupos) e conexão SignalR
+├── Services/        OAuth2, API do Discord, perfil, cliente da API central (amigos, grupos), conexão SignalR e compartilhamento de tela
+├── Media/           Captura de tela, H.264 (Media Foundation), áudio Opus/WASAPI e canal de mídia
 ├── Security/        PKCE, sessão do Discord e armazenamento DPAPI
 ├── Infrastructure/  Opções, DI, erros centralizados, rate limit, navegador
 ├── ViewModels/      Estado e comandos (MVVM)
@@ -196,8 +221,8 @@ src/ScreenCord            Aplicativo WPF
 src/ScreenCord.Api        API central
 ├── Auth/            Verificação do token do Discord e autenticação por sessão
 ├── Data/            EF Core: Users, Friendships, Sessions, Groups, GroupMembers
-├── Endpoints/       Rotas de login, busca, amizades e grupos
-└── Realtime/        Hub SignalR de grupos e rastreador de presença
+├── Endpoints/       Rotas de login, busca, amizades e grupos; canal de mídia (WebSocket)
+└── Realtime/        Hub SignalR de grupos, rastreador de presença e repasse da mídia
 src/ScreenCord.Contracts  DTOs compartilhados entre app e API
 tests/ScreenCord.Tests, tests/ScreenCord.Api.Tests
 ```

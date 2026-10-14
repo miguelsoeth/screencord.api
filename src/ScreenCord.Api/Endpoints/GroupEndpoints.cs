@@ -55,7 +55,7 @@ public static class GroupEndpoints
 
         var snapshots = await GroupQueries.PresenceAsync(db, presence.Snapshot(groups.Select(g => g.Id)), cancellationToken);
         return Results.Ok(groups.Select(g =>
-            new GroupDto(g.Id, g.Name, g.Count, snapshots[g.Id].ConnectedUsers, snapshots[g.Id].Version)));
+            new GroupDto(g.Id, g.Name, g.Count, snapshots[g.Id].ConnectedUsers, snapshots[g.Id].Version, snapshots[g.Id].ScreenShares)));
     }
 
     private static async Task<IResult> CreateGroupAsync(
@@ -84,7 +84,7 @@ public static class GroupEndpoints
         await notifier.GroupChangedAsync(db, group.Id, cancellationToken);
 
         var snapshot = await GroupQueries.PresenceAsync(db, presence, group.Id, cancellationToken);
-        return Results.Created($"/groups/{group.Id}", new GroupDto(group.Id, group.Name, 1, snapshot.ConnectedUsers, snapshot.Version));
+        return Results.Created($"/groups/{group.Id}", new GroupDto(group.Id, group.Name, 1, snapshot.ConnectedUsers, snapshot.Version, snapshot.ScreenShares));
     }
 
     private static async Task<IResult> GetGroupAsync(Guid groupId, HttpContext context, AppDbContext db, GroupPresence presence, CancellationToken cancellationToken)
@@ -166,6 +166,7 @@ public static class GroupEndpoints
         AppDbContext db,
         GroupPresence presence,
         GroupNotifier notifier,
+        MediaRelay relay,
         CancellationToken cancellationToken)
     {
         var me = context.User.GetUserId();
@@ -184,8 +185,10 @@ public static class GroupEndpoints
             await db.Groups.Where(g => g.Id == groupId).ExecuteDeleteAsync(cancellationToken);
         }
 
-        // Quem saiu deixa de aparecer conectado; os demais recebem a nova contagem.
+        // Quem saiu deixa de aparecer conectado (e de compartilhar ou assistir); os demais recebem a nova contagem.
         presence.RemoveUser(me, groupId);
+        relay.Stop(groupId, me);
+        relay.DisconnectViewer(groupId, me);
         await notifier.GroupRemovedAsync(me, groupId, cancellationToken);
         if (remaining > 0)
         {

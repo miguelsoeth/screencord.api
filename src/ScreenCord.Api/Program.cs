@@ -35,6 +35,7 @@ builder.Services.AddScreenCordOpenApi();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<GroupPresence>();
 builder.Services.AddSingleton<GroupNotifier>();
+builder.Services.AddSingleton<MediaRelay>();
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -63,6 +64,9 @@ using (var scope = app.Services.CreateScope())
 
 app.MapScreenCordOpenApi();
 
+// Canal de mídia do compartilhamento de tela. O ping mantém a conexão viva atrás de proxies.
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
+
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
@@ -72,6 +76,7 @@ app.MapAuthEndpoints();
 app.MapFriendEndpoints();
 app.MapGroupEndpoints();
 app.MapHub<GroupsHub>(GroupsHubContract.Path).RequireAuthorization();
+app.MapMediaEndpoints();
 
 app.Run();
 
