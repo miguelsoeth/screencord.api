@@ -65,7 +65,7 @@ Não crie tags para testar o pipeline: cada tag gera release, imagem e deploy em
   - `compose.yml`, `Caddyfile`, `deploy.sh`, `backup.sh`: copiados do repo a cada deploy (edite no repo, não no servidor).
   - `.env`: `PUBLIC_IP` e `API_VERSION` (a versão atual; o `deploy.sh` reescreve).
   - `api.env`: configuração da API no formato `Secao__Chave=valor` (ex.: `Discord__ClientId`). Não está no git. Ao adicionar uma configuração nova à API, documente aqui e adicione no servidor antes do deploy.
-  - `data/screencord.db`: banco SQLite (dono uid 1654, o usuário `app` da imagem .NET).
+  - `data/screencord.db`: banco SQLite em modo WAL. A pasta e o banco são do `deploy` (uid 1000), e o container da API roda com esse uid (`user: "1000:1000"` no `compose.yml`). Não mude o dono: o backup, que roda como `deploy`, precisa escrever o `-shm`.
   - `backups/`: backup diário às 03:15 (cron do `deploy`, guarda 7 dias) e um backup antes de cada deploy (guarda os 10 últimos).
 - Containers: `api` (porta 8080 publicada só em `127.0.0.1`, para o health check) e `caddy` (80/443, proxy reverso com WebSocket). A API confia em `X-Forwarded-For` porque `Proxy__TrustForwardedHeaders=true` está no `compose.yml`; isso só é seguro porque a porta da API não está exposta.
 - Secrets do GitHub (environment `production`): `DEPLOY_SSH_KEY` (chave privada do usuário `deploy`), `DEPLOY_KNOWN_HOSTS`; variável `DEPLOY_HOST`. O pull da imagem usa o `GITHUB_TOKEN` do job, com login temporário no servidor.
@@ -79,7 +79,7 @@ curl -s http://127.0.0.1:8080/health
 ./deploy.sh 0.1.0   # deploy manual de uma versão já publicada no GHCR (exige docker login ghcr.io)
 ```
 
-Restaurar um backup: `docker compose stop api`, copie o arquivo de `backups/` para `data/screencord.db` (mantendo dono 1654) e `docker compose start api`.
+Restaurar um backup: `docker compose stop api`, apague `data/screencord.db-wal` e `data/screencord.db-shm`, copie o arquivo de `backups/` para `data/screencord.db` (como `deploy`) e `docker compose start api`.
 
 ## Quando houver domínio
 

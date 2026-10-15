@@ -3,6 +3,9 @@ services:
   api:
     image: ghcr.io/miguelsoeth/screencord.api:${API_VERSION:?defina API_VERSION}
     restart: unless-stopped
+    # Roda como o usuário deploy do VPS (uid 1000), dono de data/. Assim o backup.sh e o deploy.sh,
+    # que rodam como deploy, conseguem ler o SQLite (em modo WAL, até a leitura precisa escrever o -shm).
+    user: "1000:1000"
     env_file: api.env
     environment:
       Proxy__TrustForwardedHeaders: "true"
