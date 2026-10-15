@@ -357,4 +357,41 @@ public sealed class GroupTests : IAsyncLifetime
         var updated = await ana.NextGroupAsync(g => g.Id == group.Id && g.MemberCount == 1);
         Assert.Empty(updated.ConnectedUserIds);
     }
+
+    [Fact]
+    public async Task Excluir_PeloCriador_TiraDeTodosEAvisaPeloHub()
+    {
+        await MakeFriendsAsync(_ana, _anaUser, _bruno, _brunoUser);
+        var group = await CreateGroupAsync(_ana);
+        (await AddMemberAsync(_ana, group.Id, _brunoUser)).EnsureSuccessStatusCode();
+        var bruno = await ConnectAsync(_bruno);
+        await bruno.JoinAsync(group.Id);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _ana.DeleteAsync($"/groups/{group.Id}")).StatusCode);
+
+        Assert.Equal(group.Id, await bruno.NextRemovedAsync());
+        Assert.Empty(await GroupsAsync(_ana));
+        Assert.Empty(await GroupsAsync(_bruno));
+        Assert.Equal(HttpStatusCode.NotFound, (await _ana.GetAsync($"/groups/{group.Id}")).StatusCode);
+
+        // Quem estava na sala já não está mais: entrar de novo é recusado.
+        Assert.Null(await bruno.JoinAsync(group.Id));
+    }
+
+    [Fact]
+    public async Task Excluir_SoQuemCriou()
+    {
+        await MakeFriendsAsync(_ana, _anaUser, _bruno, _brunoUser);
+        var group = await CreateGroupAsync(_ana);
+        (await AddMemberAsync(_ana, group.Id, _brunoUser)).EnsureSuccessStatusCode();
+
+        Assert.True((await _ana.GetFromJsonAsync<GroupDetailsDto>($"/groups/{group.Id}"))!.CanDelete);
+        Assert.False((await _bruno.GetFromJsonAsync<GroupDetailsDto>($"/groups/{group.Id}"))!.CanDelete);
+
+        var refused = await _bruno.DeleteAsync($"/groups/{group.Id}");
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.Equal("not_group_owner", (await refused.Content.ReadFromJsonAsync<ErrorResponse>())!.Code);
+        Assert.Equal(HttpStatusCode.NotFound, (await _carla.DeleteAsync($"/groups/{group.Id}")).StatusCode);
+        Assert.Equal(2, Assert.Single(await GroupsAsync(_ana)).MemberCount);
+    }
 }

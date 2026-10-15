@@ -71,7 +71,8 @@ public sealed record GroupMemberDto(
     string? AvatarHash,
     bool IsConnected);
 
-public sealed record GroupDetailsDto(Guid Id, string Name, IReadOnlyList<GroupMemberDto> Members, long PresenceVersion);
+/// <param name="CanDelete">Quem pediu os detalhes pode excluir o grupo (só quem o criou).</param>
+public sealed record GroupDetailsDto(Guid Id, string Name, IReadOnlyList<GroupMemberDto> Members, long PresenceVersion, bool CanDelete = false);
 
 public sealed record GroupCreate(string Name);
 

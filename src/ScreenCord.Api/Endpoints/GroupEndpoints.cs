@@ -7,8 +7,8 @@ using Microsoft.EntityFrameworkCore;
 namespace ScreenCord.Api.Endpoints;
 
 /// <summary>
-/// Grupos: salas de presença. Quem cria entra como integrante; qualquer integrante pode adicionar os
-/// próprios amigos. A entrada e a saída das salas acontecem pelo hub (<see cref="GroupsHubContract.Path"/>).
+/// Grupos: salas de presença. Quem cria entra como integrante e é o único que pode excluir o grupo;
+/// qualquer integrante pode adicionar os próprios amigos. A entrada e a saída das salas acontecem pelo hub (<see cref="GroupsHubContract.Path"/>).
 /// </summary>
 public static class GroupEndpoints
 {
@@ -40,6 +40,12 @@ public static class GroupEndpoints
             .WithSummary("Sai do grupo")
             .WithDescription("O grupo é apagado quando o último integrante sai.")
             .Produces(StatusCodes.Status204NoContent)
+            .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
+        groups.MapDelete("/{groupId:guid}", DeleteGroupAsync)
+            .WithSummary("Exclui o grupo para todos")
+            .WithDescription("Só quem criou o grupo pode excluí-lo. Todos saem da sala, os compartilhamentos de tela terminam e cada integrante recebe GroupRemoved.")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces<ErrorResponse>(StatusCodes.Status403Forbidden)
             .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
     }
 
@@ -108,7 +114,7 @@ public static class GroupEndpoints
         var members = users
             .Select(u => new GroupMemberDto(u.Id, u.DiscordId, u.Username, u.GlobalName, u.Discriminator, u.AvatarHash, connected.Contains(u.Id)))
             .ToList();
-        return Results.Ok(new GroupDetailsDto(group.Id, group.Name, members, snapshot.Version));
+        return Results.Ok(new GroupDetailsDto(group.Id, group.Name, members, snapshot.Version, CanDelete: group.CreatedById == me));
     }
 
     private static async Task<IResult> AddMemberAsync(
@@ -193,6 +199,46 @@ public static class GroupEndpoints
         if (remaining > 0)
         {
             await notifier.GroupChangedAsync(db, groupId, cancellationToken);
+        }
+
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> DeleteGroupAsync(
+        Guid groupId,
+        HttpContext context,
+        AppDbContext db,
+        GroupPresence presence,
+        GroupNotifier notifier,
+        MediaRelay relay,
+        CancellationToken cancellationToken)
+    {
+        var me = context.User.GetUserId();
+        var group = await db.Groups.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, cancellationToken);
+        if (group is null || !await GroupQueries.IsMemberAsync(db, groupId, me, cancellationToken))
+        {
+            return GroupNotFound();
+        }
+
+        if (group.CreatedById != me)
+        {
+            return ApiResults.Error(StatusCodes.Status403Forbidden, "not_group_owner", "Só quem criou o grupo pode excluí-lo.");
+        }
+
+        var members = await db.GroupMembers.AsNoTracking()
+            .Where(m => m.GroupId == groupId)
+            .Select(m => m.UserId)
+            .ToListAsync(cancellationToken);
+        await db.GroupMembers.Where(m => m.GroupId == groupId).ExecuteDeleteAsync(cancellationToken);
+        await db.Groups.Where(g => g.Id == groupId).ExecuteDeleteAsync(cancellationToken);
+
+        // Todos saem da sala (e param de compartilhar ou assistir); cada janela aberta tira o grupo da lista.
+        foreach (var member in members)
+        {
+            presence.RemoveUser(member, groupId);
+            relay.Stop(groupId, member);
+            relay.DisconnectViewer(groupId, member);
+            await notifier.GroupRemovedAsync(member, groupId, cancellationToken);
         }
 
         return Results.NoContent();
