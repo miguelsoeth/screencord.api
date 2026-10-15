@@ -30,7 +30,7 @@ jobs:
       VERSION: ${{ inputs.version }}
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Configurar SSH
         run: |
