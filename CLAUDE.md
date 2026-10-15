@@ -23,6 +23,7 @@ dotnet run --project src/ScreenCord.Api # http://localhost:5080, Swagger em /swa
 
 - Trunk-based: `main` sempre pronta para deploy.
 - Trabalhe em branches curtas (`feat/...`, `fix/...`, `chore/...`) e integre na `main` por PR com squash merge. O `ci.yml` roda os testes em todo PR e push na `main`.
+- A `main` é protegida pelo ruleset "main protegida" (Settings → Rules): **push direto é recusado** (inclusive para o dono do repo), só entra por PR com squash merge, o check `test` do CI precisa passar, e não pode haver force push nem exclusão da branch. Não é exigida aprovação de revisor. Fluxo: `git switch -c fix/x` → commit → `git push -u origin fix/x` → `gh pr create --fill` → `gh pr merge --squash --delete-branch` depois do CI verde. Se renomear o job `test` do `ci.yml`, atualize o ruleset, senão nenhum PR consegue ser mesclado.
 - Mensagens no padrão Conventional Commits, em português: `feat: convites para grupos`, `fix: token expirado não renovava`, `chore: ...`, `docs: ...`, `refactor: ...`, `test: ...`. Mudança que quebra o contrato com o app: `feat!:` e explique no corpo.
 - Nunca commite segredos. Configuração de produção fica só no VPS, em `/srv/screencord/api.env`. `appsettings.Local.json` é configuração local e não vai para a imagem (está no `.dockerignore`).
 
@@ -59,7 +60,7 @@ Não crie tags para testar o pipeline: cada tag gera release, imagem e deploy em
 ## Produção (VPS)
 
 - Host: `154.16.50.20` (EliteHost, Ubuntu 26.04, 2 vCPU, 4 GB). Sem domínio: o HTTPS usa certificado da Let's Encrypt **para o IP**, no perfil `shortlived` (~6 dias), renovado pelo Caddy. URL pública: `https://154.16.50.20`.
-- Acesso SSH somente por chave. Usuário `deploy` (no grupo `docker`) para operar a aplicação; `root` só para administração do sistema. Login por senha desativado em `/etc/ssh/sshd_config.d/00-0-screencord.conf` (precisa ser lido antes do `00-elitehost.conf` do provedor, que libera senha).
+- Acesso SSH somente por chave. Usuário `deploy` (no grupo `docker`) para operar a aplicação; `root` só para administração do sistema. A chave do Miguel (`~/.ssh/elitehost_ed25519`, no PC Windows) entra nos dois: `ssh -i ~/.ssh/elitehost_ed25519 deploy@154.16.50.20`. O `deploy` também aceita a chave do GitHub Actions (a privada só existe no secret `DEPLOY_SSH_KEY`; para trocar, gere outra, atualize `/home/deploy/.ssh/authorized_keys` e o secret). A senha de root que o painel da EliteHost mostra não funciona por SSH. Login por senha desativado em `/etc/ssh/sshd_config.d/00-0-screencord.conf` (precisa ser lido antes do `00-elitehost.conf` do provedor, que libera senha).
 - Firewall `ufw`: só 22, 80 e 443 (tcp e udp). `fail2ban` e `unattended-upgrades` ativos.
 - Diretório `/srv/screencord` (dono `deploy`):
   - `compose.yml`, `Caddyfile`, `deploy.sh`, `backup.sh`: copiados do repo a cada deploy (edite no repo, não no servidor).
