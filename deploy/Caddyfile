@@ -9,5 +9,14 @@
 }
 
 {$PUBLIC_IP} {
-	reverse_proxy api:8080
+	# Arquivos para download (ex.: o instalador do app), em /srv/screencord/downloads no VPS.
+	# https://<ip>/download/ScreenCord-Setup.msi
+	handle_path /download/* {
+		root * /srv/downloads
+		file_server
+	}
+
+	handle {
+		reverse_proxy api:8080
+	}
 }
