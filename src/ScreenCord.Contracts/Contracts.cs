@@ -62,6 +62,7 @@ public sealed record GroupDto(
     public IReadOnlyList<Guid> ConnectedUserIds => ConnectedUsers?.Select(u => u.Id).ToList() ?? [];
 }
 
+/// <param name="IsOwner">O integrante é quem criou o grupo.</param>
 public sealed record GroupMemberDto(
     Guid Id,
     string DiscordId,
@@ -69,7 +70,8 @@ public sealed record GroupMemberDto(
     string? GlobalName,
     string? Discriminator,
     string? AvatarHash,
-    bool IsConnected);
+    bool IsConnected,
+    bool IsOwner = false);
 
 /// <param name="CanDelete">Quem pediu os detalhes pode excluir o grupo (só quem o criou).</param>
 public sealed record GroupDetailsDto(Guid Id, string Name, IReadOnlyList<GroupMemberDto> Members, long PresenceVersion, bool CanDelete = false);

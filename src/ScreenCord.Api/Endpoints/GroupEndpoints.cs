@@ -112,7 +112,7 @@ public static class GroupEndpoints
         var snapshot = presence.Snapshot(groupId);
         var connected = snapshot.UserIds.ToHashSet();
         var members = users
-            .Select(u => new GroupMemberDto(u.Id, u.DiscordId, u.Username, u.GlobalName, u.Discriminator, u.AvatarHash, connected.Contains(u.Id)))
+            .Select(u => new GroupMemberDto(u.Id, u.DiscordId, u.Username, u.GlobalName, u.Discriminator, u.AvatarHash, connected.Contains(u.Id), IsOwner: u.Id == group.CreatedById))
             .ToList();
         return Results.Ok(new GroupDetailsDto(group.Id, group.Name, members, snapshot.Version, CanDelete: group.CreatedById == me));
     }
