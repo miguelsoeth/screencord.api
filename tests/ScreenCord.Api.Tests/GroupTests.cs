@@ -394,4 +394,16 @@ public sealed class GroupTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, (await _carla.DeleteAsync($"/groups/{group.Id}")).StatusCode);
         Assert.Equal(2, Assert.Single(await GroupsAsync(_ana)).MemberCount);
     }
+
+    [Fact]
+    public async Task Detalhes_MarcamQuemCriouOGrupo()
+    {
+        await MakeFriendsAsync(_ana, _anaUser, _bruno, _brunoUser);
+        var group = await CreateGroupAsync(_ana);
+        (await AddMemberAsync(_ana, group.Id, _brunoUser)).EnsureSuccessStatusCode();
+
+        var members = (await _bruno.GetFromJsonAsync<GroupDetailsDto>($"/groups/{group.Id}"))!.Members;
+        Assert.True(Assert.Single(members, m => m.Id == _anaUser.Id).IsOwner);
+        Assert.False(Assert.Single(members, m => m.Id == _brunoUser.Id).IsOwner);
+    }
 }
