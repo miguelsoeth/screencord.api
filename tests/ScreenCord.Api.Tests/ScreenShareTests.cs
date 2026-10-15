@@ -180,6 +180,53 @@ public sealed class ScreenShareTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task VideoPausado_SoOAudioChega_EAoVoltarRecomecaPorUmQuadroChave()
+    {
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+        await ana.StartAsync(Hd);
+        var publisher = await ConnectMediaAsync(_ana, _anaUser.Id);
+        var viewer = await ConnectMediaAsync(_bruno, _anaUser.Id);
+        Assert.Equal(MediaContract.KeyframeRequest, (await ReceiveAsync(publisher))![0]);
+        await SendAsync(publisher, Packet(MediaContract.Video, keyframe: true, 1));
+        Assert.Equal(MediaContract.Video, (await ReceiveAsync(viewer))![0]);
+
+        await SendAsync(viewer, Packet(MediaContract.PauseVideo, keyframe: false));
+
+        // A pausa é processada em paralelo: espera até um áudio chegar sem o vídeo enviado antes dele.
+        for (byte marker = 0; ; marker++)
+        {
+            await SendAsync(publisher, Packet(MediaContract.Video, keyframe: false, 9));
+            await SendAsync(publisher, Packet(MediaContract.Audio, keyframe: false, marker));
+            var first = await ReceiveAsync(viewer);
+            if (first![0] == MediaContract.Audio)
+            {
+                break;
+            }
+
+            Assert.Equal(MediaContract.Audio, (await ReceiveAsync(viewer))![0]);
+        }
+
+        var keyframe = Packet(MediaContract.Video, keyframe: true, 1, 2, 3);
+        var audio = Packet(MediaContract.Audio, keyframe: false, 7);
+        await SendAsync(publisher, keyframe);
+        await SendAsync(publisher, audio);
+        Assert.Equal(audio, await ReceiveAsync(viewer));
+
+        // Pedidos de quadro-chave chegam a quem compartilha no máximo a cada meio segundo.
+        await Task.Delay(600);
+        await SendAsync(viewer, Packet(MediaContract.ResumeVideo, keyframe: false));
+        Assert.Equal(MediaContract.KeyframeRequest, (await ReceiveAsync(publisher))![0]);
+
+        var delta = Packet(MediaContract.Video, keyframe: false, 4, 5);
+        await SendAsync(publisher, delta);
+        await SendAsync(publisher, keyframe);
+        Assert.Equal(keyframe, await ReceiveAsync(viewer));
+    }
+
+    [Fact]
     public async Task Assistir_SemEstarNaSala_EhRecusado()
     {
         var ana = await ConnectHubAsync(_ana);

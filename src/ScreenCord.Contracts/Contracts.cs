@@ -148,6 +148,12 @@ public static class MediaContract
     /// <summary>API → quem compartilha: alguém começou a assistir ou perdeu pacotes e precisa de um quadro-chave.</summary>
     public const byte KeyframeRequest = 3;
 
+    /// <summary>Quem assiste → API: parou de olhar (ex.: minimizou a janela); a API para de mandar vídeo e mantém o áudio.</summary>
+    public const byte PauseVideo = 4;
+
+    /// <summary>Quem assiste → API: voltou a olhar; o vídeo recomeça no próximo quadro-chave, pedido na hora.</summary>
+    public const byte ResumeVideo = 5;
+
     public const byte KeyframeFlag = 1;
 
     public static Uri BuildUri(Uri apiBaseUri, Guid groupId, Guid sharerId)

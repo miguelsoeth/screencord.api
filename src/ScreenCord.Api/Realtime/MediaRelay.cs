@@ -364,6 +364,7 @@ public sealed class MediaRelay(ILogger<MediaRelay> logger)
         private readonly CancellationTokenSource _closed = new();
         private long _queuedBytes;
         private volatile bool _waitingForKeyframe = true;
+        private volatile bool _videoPaused;
 
         public Guid UserId { get; } = userId;
 
@@ -372,6 +373,12 @@ public sealed class MediaRelay(ILogger<MediaRelay> logger)
         {
             if (packet.Type == MediaContract.Video)
             {
+                if (_videoPaused)
+                {
+                    // Não está olhando: economiza a banda do vídeo; o áudio continua.
+                    return true;
+                }
+
                 if (_waitingForKeyframe && !packet.IsKeyframe)
                 {
                     return false;
@@ -424,7 +431,9 @@ public sealed class MediaRelay(ILogger<MediaRelay> logger)
             await receive;
         }
 
-        /// <summary>O espectador não envia mídia, só pedidos de quadro-chave; a leitura também detecta o fechamento.</summary>
+        /// <summary>
+        /// O espectador não envia mídia, só pedidos de quadro-chave e de pausa do vídeo; a leitura também detecta o fechamento.
+        /// </summary>
         private async Task DrainIncomingAsync(CancellationTokenSource linked)
         {
             var buffer = new byte[1024];
@@ -438,11 +447,26 @@ public sealed class MediaRelay(ILogger<MediaRelay> logger)
                         break;
                     }
 
-                    if (result.EndOfMessage && result.Count == MediaContract.HeaderSize && buffer[0] == MediaContract.KeyframeRequest)
+                    if (!result.EndOfMessage || result.Count != MediaContract.HeaderSize)
                     {
-                        // Recomeça do próximo quadro-chave; quem compartilha recebe no máximo um pedido a cada meio segundo.
-                        _waitingForKeyframe = true;
-                        requestKeyframe();
+                        continue;
+                    }
+
+                    switch (buffer[0])
+                    {
+                        case MediaContract.PauseVideo:
+                            _videoPaused = true;
+                            break;
+                        case MediaContract.ResumeVideo when _videoPaused:
+                            _waitingForKeyframe = true;
+                            _videoPaused = false;
+                            requestKeyframe();
+                            break;
+                        case MediaContract.KeyframeRequest when !_videoPaused:
+                            // Recomeça do próximo quadro-chave; quem compartilha recebe no máximo um pedido a cada meio segundo.
+                            _waitingForKeyframe = true;
+                            requestKeyframe();
+                            break;
                     }
                 }
             }
