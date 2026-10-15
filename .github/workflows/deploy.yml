@@ -1,0 +1,52 @@
+# Deploy de uma versão já publicada no GHCR. Chamado pelo release.yml, ou à mão
+# (Actions → Deploy → Run workflow) para refazer um deploy ou voltar a uma versão anterior.
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão já publicada (ex.: 0.2.0)"
+        type: string
+        required: true
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      VERSION: ${{ inputs.version }}
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Enviar arquivos de deploy
+        run: scp deploy/compose.yml deploy/Caddyfile deploy/deploy.sh deploy/backup.sh "deploy@$DEPLOY_HOST:/srv/screencord/"
+
+      - name: Subir a versão
+        run: |
+          # Login temporário no GHCR com o token do job (expira quando o job termina).
+          echo "${{ secrets.GITHUB_TOKEN }}" | ssh "deploy@$DEPLOY_HOST" "docker login ghcr.io -u ${{ github.actor }} --password-stdin"
+          ssh "deploy@$DEPLOY_HOST" "chmod +x /srv/screencord/*.sh && /srv/screencord/deploy.sh '${VERSION#v}'; status=\$?; docker logout ghcr.io; exit \$status"
+
+      - name: Verificar pelo HTTPS
+        run: curl -fsS --retry 5 --retry-all-errors --retry-delay 3 "https://$DEPLOY_HOST/health"

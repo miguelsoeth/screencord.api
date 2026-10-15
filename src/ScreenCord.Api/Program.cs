@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
 using ScreenCord.Api;
@@ -7,6 +8,7 @@ using ScreenCord.Api.Endpoints;
 using ScreenCord.Api.Realtime;
 using ScreenCord.Contracts;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -54,7 +56,28 @@ builder.Services.AddRateLimiter(options =>
             _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
 });
 
+// Em produção a API fica atrás do Caddy, que é o único a falar com ela (a porta não é publicada).
+// Sem isto, todas as requisições viriam do IP do proxy e o rate limit por IP valeria para todos juntos.
+var behindProxy = builder.Configuration.GetValue<bool>("Proxy:TrustForwardedHeaders");
+if (behindProxy)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+}
+
+var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+    .Split('+')[0] ?? "desconhecida";
+
 var app = builder.Build();
+
+if (behindProxy)
+{
+    app.UseForwardedHeaders();
+}
 
 using (var scope = app.Services.CreateScope())
 {
@@ -71,7 +94,7 @@ app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" })).WithTags("Infra").WithSummary("Verificação de disponibilidade");
+app.MapGet("/health", () => Results.Ok(new { status = "ok", version })).WithTags("Infra").WithSummary("Verificação de disponibilidade");
 app.MapAuthEndpoints();
 app.MapFriendEndpoints();
 app.MapGroupEndpoints();

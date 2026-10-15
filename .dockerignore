@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+.git/
+.github/
+deploy/
+tests/
+*.md
+# Configurações locais não vão para a imagem: em produção tudo vem de /srv/screencord/api.env.
+**/appsettings.Local.json
+**/appsettings.Development.json

@@ -128,19 +128,20 @@ dotnet publish src/ScreenCord -c Release -r win-x64 --self-contained true -p:Pub
 
 Distribua `ScreenCord.exe` com `appsettings.json` contendo o `Discord:ClientId` e o `Api:BaseUrl` do servidor.
 
-API:
+API: a produção roda em `https://154.16.50.20` (Docker + Caddy no VPS) e o deploy é automático ao criar uma tag de versão:
 
 ```bash
-dotnet publish src/ScreenCord.Api -c Release -o publish/api
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-Antes de expor a API fora da sua máquina:
+O processo completo (versionamento, workflows, VPS, rollback e backups) está em [CLAUDE.md](CLAUDE.md).
+
+Observações de produção:
 
 - Sirva **somente por HTTPS** (o app recusa `http` que não seja localhost). O token do Discord trafega até a API no login.
 - O proxy reverso precisa repassar WebSockets (`/hubs/groups` e `/media/...`) e não deve guardar as respostas em buffer, senão o vídeo atrasa. Conte com a banda de saída do compartilhamento de tela (taxa × espectadores).
-- Atrás de proxy reverso, configure *forwarded headers*, senão o limite de requisições por IP enxerga só o IP do proxy.
 - O banco é criado com `EnsureCreated`. Para evoluir o esquema sem perder dados, adote migrações do EF Core. Para mais de uma instância, troque o SQLite por um banco servidor.
-- Faça backup do arquivo `screencord.db`.
 
 ## API central
 
