@@ -27,7 +27,6 @@ services:
       - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./downloads:/srv/downloads:ro
       # Certificados e conta ACME persistem entre deploys (evita o rate limit da Let's Encrypt).
       - caddy_data:/data
       - caddy_config:/config
