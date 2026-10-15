@@ -1,4 +1,6 @@
-# ScreenCord
+# ScreenCord — API central
+
+> Este repositório contém a **API central** (`src/ScreenCord.Api`), seus testes e os contratos compartilhados (`src/ScreenCord.Contracts`). O aplicativo desktop fica no repositório **screencord.app**. Os contratos existem nos dois repositórios: ao mudar um DTO, atualize os dois.
 
 Sistema com dois componentes:
 
@@ -80,7 +82,8 @@ Opções da API:
 ### Painel de desenvolvimento (recomendado)
 
 ```bash
-powershell -ExecutionPolicy Bypass -File .\screencord.ps1
+# no clone do screencord.app, ao lado deste
+powershell -ExecutionPolicy Bypass -File ..\screencord.app\screencord.ps1
 ```
 
 Menu navegável com as setas (↑/↓, Enter, Esc) para subir, parar e recompilar a API e o app, acompanhar os logs ao vivo e rodar os testes. Os processos rodam em segundo plano e continuam vivos ao fechar o menu; PIDs e logs ficam em `.screencord/`.
@@ -110,7 +113,7 @@ Para testar a amizade entre duas contas na mesma máquina, entre com a primeira,
 ## 4. Executar os testes
 
 ```bash
-dotnet test ScreenCord.sln
+dotnet test ScreenCord.Api.sln
 ```
 
 Nenhum teste acessa o Discord: as respostas são simuladas. Os testes da API sobem o servidor real em memória, com SQLite em memória. Os testes de mídia codificam e decodificam vídeo de verdade com o Media Foundation do Windows (usando o encoder de hardware, se houver).
