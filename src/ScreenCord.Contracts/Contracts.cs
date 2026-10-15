@@ -108,7 +108,15 @@ public static class ScreenShareLimits
 
     public static readonly int[] FrameRates = [30, 60];
 
-    public static readonly int[] BitratesKbps = [2000, 4000, 5000];
+    /// <summary>Taxa de bits: de 2000 a 7000 kbps, de 500 em 500.</summary>
+    public const int MinBitrateKbps = 2000;
+
+    public const int MaxBitrateKbps = 7000;
+
+    public const int BitrateStepKbps = 500;
+
+    public static bool IsValidBitrate(int kbps) =>
+        kbps is >= MinBitrateKbps and <= MaxBitrateKbps && (kbps - MinBitrateKbps) % BitrateStepKbps == 0;
 
     /// <summary>Janelas muito largas (ex.: monitores ultrawide) podem passar de 16:9.</summary>
     public const int MaxWidth = 3840;
@@ -120,7 +128,7 @@ public static class ScreenShareLimits
         start.Width is >= MinSize and <= MaxWidth && start.Width % 2 == 0 &&
         start.Height >= MinSize && start.Height <= Heights.Max() && start.Height % 2 == 0 &&
         FrameRates.Contains(start.FrameRate) &&
-        BitratesKbps.Contains(start.BitrateKbps);
+        IsValidBitrate(start.BitrateKbps);
 }
 
 /// <summary>

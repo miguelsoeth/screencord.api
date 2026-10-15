@@ -118,6 +118,9 @@ public sealed class ScreenShareTests : IAsyncLifetime
     [Theory]
     [InlineData(1280, 720, 45, 4000)]
     [InlineData(1280, 720, 30, 9000)]
+    [InlineData(1280, 720, 30, 7500)]
+    [InlineData(1280, 720, 30, 1500)]
+    [InlineData(1280, 720, 30, 4200)]
     [InlineData(1280, 1440, 30, 4000)]
     [InlineData(1281, 720, 30, 4000)]
     public async Task Compartilhar_ConfiguracaoForaDasOpcoes_RetornaNull(int width, int height, int fps, int kbps)
@@ -279,6 +282,40 @@ public sealed class ScreenShareTests : IAsyncLifetime
         await publisher.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
 
         await bruno.NextPresenceAsync(p => p.ScreenShares is { Count: 0 });
+    }
+
+    [Fact]
+    public async Task NovasConfiguracoes_SubstituemOCompartilhamentoSemEncerrarParaQuemAssiste()
+    {
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+        await ana.StartAsync(Hd);
+        var oldPublisher = await ConnectMediaAsync(_ana, _anaUser.Id);
+        var viewer = await ConnectMediaAsync(_bruno, _anaUser.Id);
+        Assert.Equal(MediaContract.KeyframeRequest, (await ReceiveAsync(oldPublisher))![0]);
+        await SendAsync(oldPublisher, Packet(MediaContract.Video, keyframe: true, 1));
+        Assert.Equal(MediaContract.Video, (await ReceiveAsync(viewer))![0]);
+
+        // Mesma conexão, novo anúncio com outra configuração, e um canal de mídia novo.
+        var fullHd = new ScreenShareStart(1920, 1080, 60, 5000, true);
+        var replaced = await ana.StartAsync(fullHd);
+        Assert.Equal(1080, replaced!.Height);
+        var updated = await bruno.NextPresenceAsync(p => p.ScreenShares is { Count: 1 } shares && shares[0].Height == 1080);
+        Assert.Equal(5000, updated.ScreenShares![0].BitrateKbps);
+        var newPublisher = await ConnectMediaAsync(_ana, _anaUser.Id);
+
+        // O canal antigo é fechado pelo servidor; quem assiste passa a receber do novo, a partir de um quadro-chave.
+        Assert.Null(await ReceiveAsync(oldPublisher));
+        await SendAsync(newPublisher, Packet(MediaContract.Video, keyframe: false, 9));
+        var keyframe = Packet(MediaContract.Video, keyframe: true, 4, 5, 6);
+        await SendAsync(newPublisher, keyframe);
+        Assert.Equal(keyframe, await ReceiveAsync(viewer));
+
+        // O fechamento do canal antigo não encerrou o compartilhamento.
+        var presence = await bruno.Connection.InvokeAsync<GroupPresenceDto?>(GroupsHubContract.JoinGroup, _group.Id);
+        Assert.Equal(1080, Assert.Single(presence!.ScreenShares!).Height);
     }
 
     private sealed class Hub
