@@ -227,3 +227,19 @@ public static class GroupsHubContract
     /// <summary>Cliente → servidor: encerra o compartilhamento de tela desta conexão.</summary>
     public const string StopScreenShare = "StopScreenShare";
 }
+
+/// <summary>
+/// Versão do aplicativo em cada requisição (HTTP, hub e mídia). A API recusa versões abaixo da mínima
+/// com 426 e <see cref="OutdatedCode"/>; o aplicativo então se atualiza.
+/// </summary>
+public static class ClientVersionContract
+{
+    /// <summary>Cabeçalho com a versão SemVer do aplicativo (ex.: <c>0.2.0</c>).</summary>
+    public const string Header = "X-ScreenCord-Version";
+
+    /// <summary>Código do <see cref="ErrorResponse"/> quando a versão do aplicativo não é mais aceita.</summary>
+    public const string OutdatedCode = "client_outdated";
+
+    /// <summary>Página pública de download do aplicativo.</summary>
+    public const string DownloadPage = "https://miguelsoeth.github.io/screencord/";
+}

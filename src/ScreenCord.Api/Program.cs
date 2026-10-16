@@ -6,6 +6,7 @@ using ScreenCord.Api.Auth;
 using ScreenCord.Api.Data;
 using ScreenCord.Api.Endpoints;
 using ScreenCord.Api.Realtime;
+using ScreenCord.Api.Versioning;
 using ScreenCord.Contracts;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -72,6 +73,11 @@ if (behindProxy)
 var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
     .Split('+')[0] ?? "desconhecida";
 
+// Versões antigas do app são atendidas até a mínima; abaixo dela recebem 426 e se atualizam.
+var minClientVersion = ClientVersionGate.ParseMinVersion(
+    builder.Configuration.GetSection(ClientVersionOptions.SectionName).Get<ClientVersionOptions>()?.MinVersion
+    ?? new ClientVersionOptions().MinVersion);
+
 var app = builder.Build();
 
 if (behindProxy)
@@ -86,6 +92,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.MapScreenCordOpenApi();
+app.UseClientVersionGate(minClientVersion);
 
 // Canal de mídia do compartilhamento de tela. O ping mantém a conexão viva atrás de proxies.
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
@@ -94,7 +101,7 @@ app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok", version })).WithTags("Infra").WithSummary("Verificação de disponibilidade");
+app.MapGet("/health", () => Results.Ok(new { status = "ok", version, minClientVersion = minClientVersion.ToString(3) })).WithTags("Infra").WithSummary("Verificação de disponibilidade");
 app.MapAuthEndpoints();
 app.MapFriendEndpoints();
 app.MapGroupEndpoints();

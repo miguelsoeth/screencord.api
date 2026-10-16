@@ -33,7 +33,15 @@ dotnet run --project src/ScreenCord.Api # http://localhost:5080, Swagger em /swa
 - **MAJOR**: quebra de contrato com o app (remover ou renomear campo, endpoint ou método do hub; mudar semântica). Enquanto estiver em `0.x`, quebras sobem o MINOR.
 - **MINOR**: funcionalidade nova compatível (endpoint novo, campo opcional novo).
 - **PATCH**: correção sem mudança de contrato.
-- A versão em produção aparece em `GET /health` → `{"status":"ok","version":"0.2.0"}`.
+- A versão em produção aparece em `GET /health` → `{"status":"ok","version":"0.2.0","minClientVersion":"0.1.0"}`.
+
+## Versões do app atendidas
+
+- O app manda a versão em `X-ScreenCord-Version` (HTTP, hub e mídia; `ClientVersionContract` nos Contracts). `ClientVersionGate` recusa as abaixo de `Clients:MinVersion` (no `appsettings.json`, versionada junto com o código) com **426** e `ErrorResponse` de código `client_outdated`; o app então se atualiza sozinho pela última GitHub Release pública. `/health`, `/swagger` e `/openapi` ficam de fora.
+- Sem o cabeçalho conta como `0.1.0` (a única versão publicada sem ele). `0.0.0-dev` (app rodando do código) é sempre aceito. Cabeçalho mal formado: 400.
+- Para atender versões diferentes de forma diferente, use `HttpContext.GetClientVersion()` (null para build de desenvolvimento).
+- Regra: a API atende todas as versões do app a partir da mínima. Prefira mudanças compatíveis (campos opcionais, endpoints e métodos do hub novos, sem remover os antigos). Quebra: primeiro aceite o formato antigo e o novo; depois que o app novo sair e os usuários se atualizarem, suba `Clients:MinVersion` e remova o antigo. Se não houver como aceitar os dois, suba a mínima na mesma release da mudança e publique o app logo depois. O passo a passo está no `CLAUDE.md` do app.
+- Subir `Clients:MinVersion` muda o contrato: é release da API (MINOR enquanto em `0.x`). Em emergência dá para sobrescrever sem release com `Clients__MinVersion=...` no `api.env` do VPS e `docker compose up -d api`, mas depois leve o valor para o `appsettings.json` e tire do `api.env`.
 
 ## Release e deploy
 
