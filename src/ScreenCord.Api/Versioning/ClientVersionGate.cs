@@ -26,8 +26,8 @@ public static class ClientVersionGate
 
     private static readonly object VersionKey = new();
 
-    // Rotas que não são usadas pelo aplicativo (infra e documentação).
-    private static readonly string[] ExemptPrefixes = ["/health", "/swagger", "/openapi"];
+    // Rotas que não são usadas pelo aplicativo (infra, documentação e o webhook do AbacatePay).
+    private static readonly string[] ExemptPrefixes = ["/health", "/swagger", "/openapi", PlanEndpoints.WebhookPath];
 
     /// <summary>Versão do aplicativo da requisição; null para build de desenvolvimento (aceita sempre).</summary>
     public static Version? GetClientVersion(this HttpContext context) => context.Items[VersionKey] as Version;

@@ -73,7 +73,7 @@ Não crie tags para testar o pipeline: cada tag gera release, imagem e deploy em
 - Diretório `/srv/screencord` (dono `deploy`):
   - `compose.yml`, `Caddyfile`, `deploy.sh`, `backup.sh`: copiados do repo a cada deploy (edite no repo, não no servidor).
   - `.env`: `PUBLIC_IP` e `API_VERSION` (a versão atual; o `deploy.sh` reescreve).
-  - `api.env`: configuração da API no formato `Secao__Chave=valor` (ex.: `Discord__ClientId`). Não está no git. Ao adicionar uma configuração nova à API, documente aqui e adicione no servidor antes do deploy.
+  - `api.env`: configuração da API no formato `Secao__Chave=valor` (ex.: `Discord__ClientId`). Não está no git. Ao adicionar uma configuração nova à API, documente aqui e adicione no servidor antes do deploy. Venda do Pro (ver "Plano Pro" no README): `AbacatePay__ApiKey`, `AbacatePay__WebhookSecret`, `AbacatePay__DevMode` e as ofertas (`AbacatePay__Offers__0__Id`, `__Name`, `__Days`, `__PriceCents`, `__ProductId`); Pro concedido à mão: `Plans__ProDiscordIds__0=<id do Discord>`. Sem a chave, o secret e uma oferta, a venda fica desligada.
   - `data/screencord.db`: banco SQLite em modo WAL. A pasta e o banco são do `deploy` (uid 1000), e o container da API roda com esse uid (`user: "1000:1000"` no `compose.yml`). Não mude o dono: o backup, que roda como `deploy`, precisa escrever o `-shm`.
   - `backups/`: backup diário às 03:15 (cron do `deploy`, guarda 7 dias) e um backup antes de cada deploy (guarda os 10 últimos).
 - Containers: `api` (porta 8080 publicada só em `127.0.0.1`, para o health check) e `caddy` (80/443, proxy reverso com WebSocket). A API confia em `X-Forwarded-For` porque `Proxy__TrustForwardedHeaders=true` está no `compose.yml`; isso só é seguro porque a porta da API não está exposta.

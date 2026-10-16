@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Threading.RateLimiting;
 using ScreenCord.Api;
 using ScreenCord.Api.Auth;
+using ScreenCord.Api.Billing;
 using ScreenCord.Api.Data;
 using ScreenCord.Api.Endpoints;
 using ScreenCord.Api.Realtime;
@@ -26,6 +27,17 @@ builder.Services.AddHttpClient<IDiscordTokenVerifier, DiscordTokenVerifier>(clie
     client.BaseAddress = new Uri("https://discord.com/api/v10/");
     client.Timeout = TimeSpan.FromSeconds(10);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("DiscordBot (https://localhost/screencord, 1.0.0)");
+});
+
+// Planos e venda do Pro pelo AbacatePay.
+builder.Services.Configure<PlansOptions>(builder.Configuration.GetSection(PlansOptions.SectionName));
+builder.Services.Configure<AbacatePayOptions>(builder.Configuration.GetSection(AbacatePayOptions.SectionName));
+builder.Services.AddScoped<PlanService>();
+builder.Services.AddSingleton<PlanNotifier>();
+builder.Services.AddHttpClient<IAbacatePayClient, AbacatePayClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.abacatepay.com/v2/");
+    client.Timeout = TimeSpan.FromSeconds(15);
 });
 
 builder.Services
@@ -56,6 +68,12 @@ builder.Services.AddRateLimiter(options =>
         RateLimitPartition.GetFixedWindowLimiter(
             ClientIp(context),
             _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+
+    // Cada checkout cria uma cobrança no AbacatePay.
+    options.AddPolicy(PlanEndpoints.CheckoutRateLimitPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? ClientIp(context),
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(10) }));
 });
 
 // Em produção a API fica atrás do Caddy, que é o único a falar com ela (a porta não é publicada).
@@ -106,6 +124,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok", version, minClientVe
 app.MapAuthEndpoints();
 app.MapFriendEndpoints();
 app.MapGroupEndpoints();
+app.MapPlanEndpoints();
 app.MapHub<GroupsHub>(GroupsHubContract.Path).RequireAuthorization();
 app.MapMediaEndpoints();
 

@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using ScreenCord.Api.Auth;
+using ScreenCord.Api.Billing;
 using ScreenCord.Api.Data;
 using ScreenCord.Contracts;
 using Microsoft.AspNetCore.Hosting;
@@ -38,12 +39,40 @@ public sealed class FakeDiscordVerifier : IDiscordTokenVerifier
     }
 }
 
-/// <summary>API real em memória, com SQLite em memória e o Discord simulado.</summary>
-public sealed class ApiFactory : WebApplicationFactory<Program>
+/// <summary>Simula o AbacatePay: cada checkout criado fica registrado com o <c>externalId</c> recebido.</summary>
+public sealed class FakeAbacatePay : IAbacatePayClient
+{
+    public List<(string ProductId, string ExternalId, AbacatePayCheckout Checkout)> Checkouts { get; } = [];
+
+    public bool Unavailable { get; set; }
+
+    public Task<AbacatePayCheckout> CreateCheckoutAsync(string productId, string externalId, CancellationToken cancellationToken)
+    {
+        if (Unavailable)
+        {
+            throw new AbacatePayException("fora do ar");
+        }
+
+        var id = $"bill_{Checkouts.Count + 1}";
+        var checkout = new AbacatePayCheckout(id, $"https://app.abacatepay.com/pay/{id}");
+        lock (Checkouts)
+        {
+            Checkouts.Add((productId, externalId, checkout));
+        }
+
+        return Task.FromResult(checkout);
+    }
+}
+
+/// <summary>API real em memória, com SQLite em memória, o Discord e o AbacatePay simulados.</summary>
+/// <param name="settings">Configurações a mais (ex.: <c>Plans:ProDiscordIds:0</c>), acima das do appsettings.</param>
+public sealed class ApiFactory(IReadOnlyDictionary<string, string?>? settings = null) : WebApplicationFactory<Program>
 {
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
 
     public FakeDiscordVerifier Discord { get; } = new();
+
+    public FakeAbacatePay AbacatePay { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -52,6 +81,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
         // Os clientes dos testes não mandam a versão (contam como 0.1.0); a versão mínima tem testes próprios.
         builder.UseSetting("Clients:MinVersion", "0.1.0");
+        foreach (var (key, value) in settings ?? new Dictionary<string, string?>())
+        {
+            builder.UseSetting(key, value);
+        }
+
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<DbContextOptions<AppDbContext>>();
@@ -60,6 +94,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IDiscordTokenVerifier>();
             services.AddSingleton<IDiscordTokenVerifier>(Discord);
+
+            services.RemoveAll<IAbacatePayClient>();
+            services.AddSingleton<IAbacatePayClient>(AbacatePay);
         });
     }
 

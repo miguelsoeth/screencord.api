@@ -1,4 +1,5 @@
 using ScreenCord.Api.Auth;
+using ScreenCord.Api.Billing;
 using ScreenCord.Api.Data;
 using ScreenCord.Api.Realtime;
 using ScreenCord.Contracts;
@@ -23,7 +24,7 @@ public static class GroupEndpoints
         groups.MapPost("", CreateGroupAsync)
             .WithSummary("Cria um grupo")
             .WithDescription($"O nome tem de 1 a {GroupsHubContract.MaxNameLength} caracteres. Quem cria vira o primeiro integrante. " +
-                $"Cada conta pode ter até {GroupsHubContract.MaxCreatedGroups} grupos criados por ela (contam os que ela ainda integra).")
+                $"Cada conta pode ter até {PlanLimits.Free.MaxCreatedGroups} grupos criados por ela no plano gratuito ({PlanLimits.Pro.MaxCreatedGroups} no Pro; contam os que ela ainda integra).")
             .Produces<GroupDto>(StatusCodes.Status201Created)
             .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
             .Produces<ErrorResponse>(StatusCodes.Status409Conflict);
@@ -33,7 +34,7 @@ public static class GroupEndpoints
             .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
         groups.MapPost("/{groupId:guid}/members", AddMemberAsync)
             .WithSummary("Adiciona um amigo seu ao grupo")
-            .WithDescription($"Só integrantes podem adicionar, e só pessoas que são amigas de quem adiciona. Limite de {GroupsHubContract.MaxMembers} integrantes.")
+            .WithDescription($"Só integrantes podem adicionar, e só pessoas que são amigas de quem adiciona. Limite de {PlanLimits.Free.MaxMembers} integrantes, ou {PlanLimits.Pro.MaxMembers} se quem criou o grupo tiver o Pro.")
             .Produces<GroupDto>()
             .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
             .Produces<ErrorResponse>(StatusCodes.Status404NotFound)
@@ -72,6 +73,7 @@ public static class GroupEndpoints
         AppDbContext db,
         GroupPresence presence,
         GroupNotifier notifier,
+        PlanService plans,
         TimeProvider time,
         CancellationToken cancellationToken)
     {
@@ -85,10 +87,12 @@ public static class GroupEndpoints
         // Grupos de que a pessoa saiu não contam: ela não consegue mais excluí-los para liberar espaço.
         var created = await db.Groups.CountAsync(
             g => g.CreatedById == me && db.GroupMembers.Any(m => m.GroupId == g.Id && m.UserId == me), cancellationToken);
-        if (created >= GroupsHubContract.MaxCreatedGroups)
+        var plan = await plans.GetAsync(me, cancellationToken);
+        if (created >= plan.Limits.MaxCreatedGroups)
         {
-            return ApiResults.Error(StatusCodes.Status409Conflict, "group_limit",
-                $"Você já criou {GroupsHubContract.MaxCreatedGroups} grupos, o limite por conta. Exclua um para criar outro.");
+            return ApiResults.Error(StatusCodes.Status409Conflict, "group_limit", plan.Tier == PlanTier.Pro
+                ? $"Você já criou {plan.Limits.MaxCreatedGroups} grupos, o limite por conta. Exclua um para criar outro."
+                : $"Você já criou {plan.Limits.MaxCreatedGroups} grupos, o limite do plano gratuito. Exclua um ou assine o Pro para criar mais.");
         }
 
         var now = time.GetUtcNow();
@@ -135,11 +139,13 @@ public static class GroupEndpoints
         AppDbContext db,
         GroupPresence presence,
         GroupNotifier notifier,
+        PlanService plans,
         TimeProvider time,
         CancellationToken cancellationToken)
     {
         var me = context.User.GetUserId();
-        if (!await GroupQueries.IsMemberAsync(db, groupId, me, cancellationToken))
+        var group = await db.Groups.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, cancellationToken);
+        if (group is null || !await GroupQueries.IsMemberAsync(db, groupId, me, cancellationToken))
         {
             return GroupNotFound();
         }
@@ -158,9 +164,13 @@ public static class GroupEndpoints
             return ApiResults.Error(StatusCodes.Status409Conflict, "already_member", "Esta pessoa já faz parte do grupo.");
         }
 
-        if (await db.GroupMembers.CountAsync(m => m.GroupId == groupId, cancellationToken) >= GroupsHubContract.MaxMembers)
+        // Vale o plano de quem criou o grupo. Se o Pro dele vencer, ninguém sai: só não entra mais gente.
+        var owner = await plans.GetAsync(group.CreatedById, cancellationToken);
+        if (await db.GroupMembers.CountAsync(m => m.GroupId == groupId, cancellationToken) >= owner.Limits.MaxMembers)
         {
-            return ApiResults.Error(StatusCodes.Status409Conflict, "group_full", $"O grupo atingiu o limite de {GroupsHubContract.MaxMembers} integrantes.");
+            return ApiResults.Error(StatusCodes.Status409Conflict, "group_full", owner.Tier == PlanTier.Pro
+                ? $"O grupo atingiu o limite de {owner.Limits.MaxMembers} integrantes."
+                : $"O grupo atingiu o limite de {owner.Limits.MaxMembers} integrantes do plano gratuito. Com o Pro de quem o criou, ele comporta {PlanLimits.Pro.MaxMembers}.");
         }
 
         db.GroupMembers.Add(new GroupMember { GroupId = groupId, UserId = request.UserId, AddedById = me, AddedAtUtc = time.GetUtcNow() });

@@ -102,41 +102,91 @@ public sealed record ScreenShareDto(Guid UserId, int Width, int Height, int Fram
 
 /// <summary>
 /// Limites do compartilhamento de tela, validados pela API e oferecidos pelo aplicativo.
-/// A largura acompanha a proporção da tela ou janela; a altura é a resolução escolhida: 540p a 60 fps ou
-/// 720p a 30 fps (1080p fica para um plano pago).
+/// A largura acompanha a proporção da tela ou janela; a altura é a resolução escolhida. O que cada plano
+/// permite está em <see cref="PlanLimits"/>; os métodos sem plano valem para o gratuito (540p a 60 fps ou
+/// 720p a 30 fps, até 3000 kbps), que é o que as versões do aplicativo anteriores aos planos conhecem.
 /// </summary>
 public static class ScreenShareLimits
 {
+    /// <summary>Alturas oferecidas no plano gratuito.</summary>
     public static readonly int[] Heights = [540, 720];
 
     public static readonly int[] FrameRates = [30, 60];
 
-    /// <summary>Maior altura a 60 fps; acima dela, só 30 fps.</summary>
+    /// <summary>Maior altura a 60 fps no plano gratuito; acima dela, só 30 fps.</summary>
     public const int MaxHeightAt60Fps = 540;
 
-    /// <summary>Teto da taxa de bits. O aplicativo não deixa escolher: adapta a taxa à rede, até este valor.</summary>
+    /// <summary>Teto da taxa de bits no plano gratuito. O aplicativo não deixa escolher: adapta a taxa à rede, até o teto do plano.</summary>
     public const int MaxBitrateKbps = 3000;
 
     public const int MinBitrateKbps = 300;
 
-    public static bool IsValidBitrate(int kbps) => kbps is >= MinBitrateKbps and <= MaxBitrateKbps;
+    public static bool IsValidBitrate(int kbps) => PlanLimits.Free.AllowsBitrate(kbps);
 
-    /// <summary>A altura e o fps estão dentro do plano (a altura real pode ser menor, numa janela pequena).</summary>
-    public static bool IsValidQuality(int height, int frameRate) =>
-        height <= Heights.Max() && FrameRates.Contains(frameRate) && (frameRate <= 30 || height <= MaxHeightAt60Fps);
+    /// <summary>A altura e o fps estão dentro do plano gratuito (a altura real pode ser menor, numa janela pequena).</summary>
+    public static bool IsValidQuality(int height, int frameRate) => PlanLimits.Free.AllowsQuality(height, frameRate);
 
     /// <summary>Janelas muito largas (ex.: monitores ultrawide) podem passar de 16:9.</summary>
     public const int MaxWidth = 3840;
 
     public const int MinSize = 64;
 
-    public static bool IsValid(ScreenShareStart? start) =>
+    public static bool IsValid(ScreenShareStart? start) => IsValid(start, PlanLimits.Free);
+
+    public static bool IsValid(ScreenShareStart? start, PlanLimits limits) =>
         start is not null &&
         start.Width is >= MinSize and <= MaxWidth && start.Width % 2 == 0 &&
         start.Height >= MinSize && start.Height % 2 == 0 &&
-        IsValidQuality(start.Height, start.FrameRate) &&
-        IsValidBitrate(start.BitrateKbps);
+        limits.AllowsQuality(start.Height, start.FrameRate) &&
+        limits.AllowsBitrate(start.BitrateKbps);
 }
+
+[JsonConverter(typeof(JsonStringEnumConverter<PlanTier>))]
+public enum PlanTier
+{
+    Free,
+    Pro,
+}
+
+/// <summary>
+/// O que um plano permite. A API valida com os limites do plano de cada conta e os informa em
+/// <see cref="PlanDto"/>; o aplicativo só habilita as opções que cabem neles.
+/// </summary>
+/// <param name="MaxHeight">Maior altura do compartilhamento de tela.</param>
+/// <param name="MaxHeightAt60Fps">Maior altura a 60 fps; acima dela, só 30 fps.</param>
+/// <param name="MaxBitrateKbps">Teto da taxa de bits (a taxa começa nele e se adapta à rede).</param>
+/// <param name="MaxMembers">Integrantes por grupo. Vale o plano de quem criou o grupo.</param>
+/// <param name="MaxCreatedGroups">Grupos criados pela conta ao mesmo tempo.</param>
+public sealed record PlanLimits(int MaxHeight, int MaxHeightAt60Fps, int MaxBitrateKbps, int MaxMembers, int MaxCreatedGroups)
+{
+    public static PlanLimits Free { get; } = new(
+        720, ScreenShareLimits.MaxHeightAt60Fps, ScreenShareLimits.MaxBitrateKbps, GroupsHubContract.MaxMembers, GroupsHubContract.MaxCreatedGroups);
+
+    /// <summary>720p60, 1080p30 e 1080p60, até 5 Mbps; o dobro de integrantes; grupos "ilimitados" (teto alto contra abuso).</summary>
+    public static PlanLimits Pro { get; } = new(1080, 1080, 5000, 20, 100);
+
+    public static PlanLimits For(PlanTier tier) => tier == PlanTier.Pro ? Pro : Free;
+
+    /// <summary>A altura e o fps cabem no plano (a altura real pode ser menor que a escolhida, numa janela pequena).</summary>
+    public bool AllowsQuality(int height, int frameRate) =>
+        height <= MaxHeight && ScreenShareLimits.FrameRates.Contains(frameRate) && (frameRate <= 30 || height <= MaxHeightAt60Fps);
+
+    public bool AllowsBitrate(int kbps) => kbps >= ScreenShareLimits.MinBitrateKbps && kbps <= MaxBitrateKbps;
+}
+
+/// <summary>Plano da conta, em <c>GET /me/plan</c> e no evento <see cref="GroupsHubContract.PlanChanged"/>.</summary>
+/// <param name="ProUntilUtc">Até quando o Pro vale; null no gratuito ou no Pro concedido sem prazo.</param>
+/// <param name="Offers">Períodos de Pro à venda; vazio quando a venda não está disponível.</param>
+public sealed record PlanDto(PlanTier Tier, DateTimeOffset? ProUntilUtc, PlanLimits Limits, IReadOnlyList<ProOfferDto> Offers);
+
+/// <summary>Um período de Pro à venda (pagamento único, sem renovação automática).</summary>
+public sealed record ProOfferDto(string Id, string Name, int Days, int PriceCents);
+
+/// <summary>Corpo de <c>POST /billing/checkout</c>.</summary>
+public sealed record ProCheckoutCreate(string OfferId);
+
+/// <summary>Página de pagamento, aberta no navegador. O Pro é ativado quando o pagamento é confirmado (pelo hub, <see cref="GroupsHubContract.PlanChanged"/>).</summary>
+public sealed record ProCheckoutDto(string Url);
 
 /// <summary>
 /// Canal de mídia do compartilhamento de tela: um WebSocket por compartilhamento, autenticado pelo
@@ -209,9 +259,10 @@ public static class GroupsHubContract
 
     public const int MaxNameLength = 40;
 
+    /// <summary>Integrantes por grupo no plano gratuito (<see cref="PlanLimits"/>).</summary>
     public const int MaxMembers = 10;
 
-    /// <summary>Quantos grupos cada conta pode ter criado ao mesmo tempo (participar de grupos de outros não conta).</summary>
+    /// <summary>Quantos grupos cada conta do plano gratuito pode ter criado ao mesmo tempo (participar de grupos de outros não conta).</summary>
     public const int MaxCreatedGroups = 5;
 
     /// <summary>Cliente → servidor: entra na sala do grupo (sai da anterior). Retorna a presença atual ou null se não for integrante.</summary>
@@ -231,6 +282,9 @@ public static class GroupsHubContract
 
     /// <summary>Servidor → cliente (sem argumentos): amigos ou solicitações de amizade do usuário mudaram; recarregue as listas.</summary>
     public const string FriendsChanged = "FriendsChanged";
+
+    /// <summary>Servidor → cliente: <see cref="PlanDto"/> novo da conta (Pro ativado, renovado ou estornado).</summary>
+    public const string PlanChanged = "PlanChanged";
 
     /// <summary>Cliente → servidor: <see cref="ScreenShareStart"/>; começa a compartilhar a tela na sala atual. Retorna o <see cref="ScreenShareDto"/> ou null.</summary>
     public const string StartScreenShare = "StartScreenShare";

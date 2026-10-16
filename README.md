@@ -16,7 +16,7 @@ Sistema com dois componentes:
 - **Cadastro automático**: ao conectar, o app faz login na API central, que cria o usuário (ou atualiza nome e avatar) com os dados confirmados pelo Discord.
 - **Amigos no sistema**: no menu do botão de amigos (ao lado de atualizar perfil, com uma bolinha vermelha quando há solicitações recebidas), buscar usuários por nome (`@fulano`), enviar solicitação, aceitar, recusar, cancelar e remover amigo (com confirmação).
 - **Grupos (salas de presença em tempo real)**: lista compacta na lateral direita, uma linha por grupo com nome, indicador de conexão e a contagem `conectados/integrantes` (ex.: `1/2`). Quem está conectado aparece listado (foto e nome) logo abaixo do grupo; a seta à esquerda recolhe ou expande essa lista. Clicar no nome conecta você à sala; clicar na contagem abre os integrantes (foto, nome e quem está conectado) e permite adicionar amigos. Qualquer integrante adiciona os próprios amigos ou sai do grupo; só quem criou o grupo vê **Excluir grupo**, que o apaga para todos (com confirmação). Entradas e saídas aparecem na hora para todos.
-- **Compartilhamento de tela**: na sala em que você está, o botão de compartilhar (ao lado de "Sair da sala") abre a escolha de **tela inteira ou janela**, **resolução** (540p ou 720p; 1080p aparece desligado, reservado para um plano pago), **taxa de quadros** (30 ou 60 fps em 540p; só 30 fps em 720p) e **compartilhar áudio** ou não. A taxa de bits não é escolhida: começa em 3000 kbps (3 Mbps) e se adapta à conexão de quem compartilha, sem passar disso. O padrão é 720p, 30 fps, com áudio; a última escolha é lembrada enquanto o app está aberto. Durante o compartilhamento, a engrenagem ao lado de parar abre a mesma escolha para **alterar as configurações** (ou a tela/janela): o compartilhamento recomeça por baixo dos panos e quem está assistindo continua vendo, já com a nova configuração. Quem compartilha aparece com o selo **AO VIVO** na lista de conectados; clicar nele mostra a transmissão na área principal da janela, uma de cada vez (abrir outra troca a atual; o **X** da barra para de assistir), com volume, mudo e **tela cheia** (botão, F11 ou duplo clique; Esc, F11 ou duplo clique para sair). Clicar em AO VIVO de outro grupo entra na sala dele antes. Sair da sala, trocar de sala ou perder a conexão encerra o compartilhamento e fecha a transmissão que você assistia.
+- **Compartilhamento de tela**: na sala em que você está, o botão de compartilhar (ao lado de "Sair da sala") abre a escolha de **tela inteira ou janela**, **resolução** (540p ou 720p; 1080p com o [Pro](#plano-pro)), **taxa de quadros** (30 ou 60 fps em 540p; só 30 fps em 720p, e 60 fps em qualquer resolução com o Pro) e **compartilhar áudio** ou não. A taxa de bits não é escolhida: começa no teto do plano (3000 kbps, ou 5000 kbps no Pro) e se adapta à conexão de quem compartilha, sem passar disso. O padrão é 720p, 30 fps, com áudio; a última escolha é lembrada enquanto o app está aberto. Durante o compartilhamento, a engrenagem ao lado de parar abre a mesma escolha para **alterar as configurações** (ou a tela/janela): o compartilhamento recomeça por baixo dos panos e quem está assistindo continua vendo, já com a nova configuração. Quem compartilha aparece com o selo **AO VIVO** na lista de conectados; clicar nele mostra a transmissão na área principal da janela, uma de cada vez (abrir outra troca a atual; o **X** da barra para de assistir), com volume, mudo e **tela cheia** (botão, F11 ou duplo clique; Esc, F11 ou duplo clique para sair). Clicar em AO VIVO de outro grupo entra na sala dele antes. Sair da sala, trocar de sala ou perder a conexão encerra o compartilhamento e fecha a transmissão que você assistia.
 - Sessão do Discord reutilizada entre execuções (tokens cifrados com DPAPI), com renovação automática.
 - Tratamento de falta de conexão, timeout, token inválido, autorização negada, HTTP 429 e indisponibilidade — tanto do Discord quanto da API central.
 
@@ -152,7 +152,7 @@ Com a API rodando em Development (o padrão do `screencord.ps1` e do `dotnet run
 
 Fora de Development as duas rotas não são publicadas.
 
-Todas as rotas, exceto `/health` e `/auth/discord`, exigem `Authorization: Bearer <token de sessão>`.
+Todas as rotas, exceto `/health`, `/auth/discord` e o webhook do AbacatePay, exigem `Authorization: Bearer <token de sessão>`.
 
 | Método e rota | Descrição |
 |---|---|
@@ -160,6 +160,9 @@ Todas as rotas, exceto `/health` e `/auth/discord`, exigem `Authorization: Beare
 | `POST /auth/discord` | Corpo `{ "accessToken": "<token do Discord>" }`. Confirma o token com o Discord, cria/atualiza o usuário e devolve `{ token, expiresAtUtc, user }`. |
 | `POST /auth/logout` | Encerra a sessão atual. |
 | `GET /me` | Usuário da sessão. |
+| `GET /me/plan` | Plano da conta: `{ tier, proUntilUtc, limits, offers }`. `tier` é `Free` ou `Pro`; `limits` traz `maxHeight`, `maxHeightAt60Fps`, `maxBitrateKbps`, `maxMembers` e `maxCreatedGroups`; `offers` são os períodos de Pro à venda (vazio se a venda não estiver configurada). |
+| `POST /billing/checkout` | Corpo `{ "offerId": "pro-30" }`. Cria o checkout no AbacatePay e devolve `{ url }`, que o app abre no navegador. 400 `invalid_offer`; 503 `billing_unavailable`. Até 10 a cada 10 minutos por conta. |
+| `POST /billing/abacatepay/webhook` | Webhook do AbacatePay (ver [Plano Pro](#plano-pro)). |
 | `GET /users/search?q=` | Busca por nome de usuário ou de exibição (mínimo 2 caracteres, até 20 resultados, sem o próprio usuário). Cada item traz `relationship`. |
 | `GET /friends` | Amigos confirmados. |
 | `DELETE /friends/{userId}` | Desfaz a amizade. |
@@ -168,9 +171,9 @@ Todas as rotas, exceto `/health` e `/auth/discord`, exigem `Authorization: Beare
 | `POST /friends/requests/{userId}/accept` | Aceita a solicitação recebida de `userId`. |
 | `DELETE /friends/requests/{userId}` | Recusa uma solicitação recebida ou cancela uma enviada. |
 | `GET /groups` | Seus grupos, com `memberCount`, `connectedUsers` (id, nome e avatar de quem está na sala) e `presenceVersion`. |
-| `POST /groups` | Corpo `{ "name": "..." }` (1 a 40 caracteres). Cria o grupo com você como integrante. Cada conta pode ter até 5 grupos criados por ela (contam os que ela ainda integra); acima disso, 409 `group_limit`. |
+| `POST /groups` | Corpo `{ "name": "..." }` (1 a 40 caracteres). Cria o grupo com você como integrante. Cada conta pode ter até 5 grupos criados por ela no plano gratuito, ou 100 no Pro (contam os que ela ainda integra); acima disso, 409 `group_limit`. |
 | `GET /groups/{groupId}` | Integrantes, cada um com `isConnected`. Só para integrantes. |
-| `POST /groups/{groupId}/members` | Corpo `{ "userId": "<guid>" }`. Adiciona um amigo seu (limite de 10 integrantes). |
+| `POST /groups/{groupId}/members` | Corpo `{ "userId": "<guid>" }`. Adiciona um amigo seu. Limite de 10 integrantes, ou 20 se quem criou o grupo tiver o Pro; acima disso, 409 `group_full`. |
 | `DELETE /groups/{groupId}/members/me` | Sai do grupo; o grupo é apagado quando o último integrante sai. |
 | `DELETE /groups/{groupId}` | Exclui o grupo para todos (só quem criou; 403 `not_group_owner` para os outros). Todos saem da sala, os compartilhamentos terminam e cada integrante recebe `GroupRemoved`. `GET /groups/{groupId}` traz `canDelete`. |
 
@@ -187,10 +190,42 @@ O hub `/hubs/groups` mantém uma conexão persistente (WebSocket, com fallback a
 | `PresenceChanged(presence)` | API → app | `{ groupId, connectedUsers, version }`, enviado a todos os integrantes a cada entrada ou saída. |
 | `GroupChanged(group)` | API → app | Grupo criado ou com integrantes alterados (inclusive para quem acabou de ser adicionado). |
 | `GroupRemoved(groupId)` | API → app | Você saiu do grupo (avisa as suas outras janelas). |
-| `StartScreenShare(start)` | app → API | `{ width, height, frameRate, bitrateKbps, hasAudio }`. Começa a compartilhar na sala atual; retorna `{ userId, width, height, frameRate, bitrateKbps, hasAudio }`, ou `null` se a conexão não estiver numa sala ou a configuração não for uma das opções (540p a 30 ou 60 fps, 720p a 30 fps, até 3000 kbps). |
+| `PlanChanged(plan)` | API → app | Seu plano mudou (pagamento confirmado ou estornado); o mesmo formato de `GET /me/plan`. |
+| `StartScreenShare(start)` | app → API | `{ width, height, frameRate, bitrateKbps, hasAudio }`. Começa a compartilhar na sala atual; retorna `{ userId, width, height, frameRate, bitrateKbps, hasAudio }`, ou `null` se a conexão não estiver numa sala ou a configuração não couber no plano (gratuito: 540p a 30 ou 60 fps, 720p a 30 fps, até 3000 kbps; Pro: até 1080p a 30 ou 60 fps, até 5000 kbps). |
 | `StopScreenShare()` | app → API | Encerra o compartilhamento desta conexão. Sair da sala, trocar de sala ou desconectar também encerra. |
 
 A presença (`PresenceChanged` e os grupos de `GET /groups`) traz também `screenShares`: quem está compartilhando na sala e com que configuração.
+
+### Plano Pro
+
+| | Gratuito | Pro |
+|---|---|---|
+| Compartilhamento | 540p a 30/60 fps, 720p a 30 fps | também 720p60, 1080p30 e 1080p60 |
+| Teto da taxa de bits (adaptativa) | 3000 kbps | 5000 kbps |
+| Grupos criados | 5 | 100 ("ilimitado") |
+| Integrantes por grupo | 10 | 20 (vale o plano de quem criou o grupo) |
+
+Os limites ficam em `PlanLimits` (Contracts). Quem assiste não precisa do Pro. Quando o Pro vence nada é apagado: grupos e integrantes acima do limite continuam, só não dá para criar ou adicionar além dele; um compartilhamento em andamento segue até parar.
+
+O Pro é vendido em períodos pré-pagos (sem renovação automática) pelo checkout do AbacatePay, por Pix por padrão. Cada compra soma os dias ao fim do Pro atual. O fluxo:
+
+1. O app chama `POST /billing/checkout`; a API grava o pagamento (`Payments`, pendente), cria o checkout com o id do pagamento como `externalId` e devolve a URL.
+2. O app abre a URL no navegador.
+3. O AbacatePay chama `POST /billing/abacatepay/webhook?webhookSecret=...`. A API confere o secret e a assinatura `X-Webhook-Signature` (HMAC-SHA256 do corpo, em base64), marca o pagamento como pago, estende `Subscriptions.ProUntilUtc` e envia `PlanChanged`. `checkout.refunded` e `checkout.disputed` tiram os dias daquela compra. Entregas repetidas não têm efeito; eventos de outro ambiente (`devMode` diferente de `AbacatePay:DevMode`) ou de checkouts desconhecidos são ignorados com 200.
+
+Configuração (seções `Plans` e `AbacatePay`):
+
+| Chave | Descrição |
+|---|---|
+| `Plans:ProDiscordIds` | Lista de IDs do Discord com Pro sem prazo, concedido à mão (testes, amigos). |
+| `AbacatePay:ApiKey` | Chave de API com a permissão `CHECKOUT:CREATE`. A chave define o ambiente (Dev mode ou produção). |
+| `AbacatePay:WebhookSecret` | Secret do webhook cadastrado no AbacatePay. |
+| `AbacatePay:DevMode` | `true` com chave de Dev mode. |
+| `AbacatePay:Methods` | Formas de pagamento do checkout (padrão `["PIX"]`). |
+| `AbacatePay:CompletionUrl` | Para onde o navegador vai depois de pagar (padrão: a página de download). |
+| `AbacatePay:Offers` | Lista de `{ Id, Name, Days, PriceCents, ProductId }`. `ProductId` é um produto avulso (sem `cycle`) criado no AbacatePay; o valor cobrado é o do produto, e `PriceCents` só é exibido no app (mantenha os dois iguais). |
+
+A venda só aparece no app com `ApiKey`, `WebhookSecret` e ao menos uma oferta configurados. No AbacatePay, cadastre o webhook com a URL `https://<API>/billing/abacatepay/webhook?webhookSecret=<secret>` e os eventos `checkout.completed`, `checkout.refunded` e `checkout.disputed`.
 
 `version` cresce a cada mudança de presença (inclusive início e fim de compartilhamento); o app descarta notificações mais antigas que a última aplicada, então mensagens fora de ordem não deixam a lista errada. Ao reconectar, o app recarrega os grupos e volta para a sala em que estava. A presença fica em memória numa instância da API; para rodar várias instâncias seria preciso um backplane (ex.: Redis).
 

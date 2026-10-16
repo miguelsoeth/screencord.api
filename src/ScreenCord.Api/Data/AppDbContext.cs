@@ -90,6 +90,50 @@ public sealed class GroupMember
     public DateTimeOffset AddedAtUtc { get; set; }
 }
 
+/// <summary>Pro pago da conta (uma linha por conta que já comprou). Sem linha, ou vencido, é o plano gratuito.</summary>
+public sealed class Subscription
+{
+    public Guid UserId { get; set; }
+
+    public DateTimeOffset ProUntilUtc { get; set; }
+
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+}
+
+public enum PaymentStatus
+{
+    /// <summary>Checkout criado, aguardando o pagamento.</summary>
+    Pending,
+    Paid,
+    /// <summary>Estornado ou contestado: os dias comprados foram retirados.</summary>
+    Refunded,
+}
+
+/// <summary>Compra de um período de Pro. O id vai como <c>externalId</c> no checkout do AbacatePay.</summary>
+public sealed class Payment
+{
+    public Guid Id { get; set; }
+
+    public Guid UserId { get; set; }
+
+    public required string OfferId { get; set; }
+
+    public int Days { get; set; }
+
+    public int AmountCents { get; set; }
+
+    /// <summary>Id do checkout no AbacatePay (<c>bill_...</c>), preenchido quando ele é criado.</summary>
+    public string? CheckoutId { get; set; }
+
+    public PaymentStatus Status { get; set; }
+
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public DateTimeOffset? PaidAtUtc { get; set; }
+
+    public DateTimeOffset? RefundedAtUtc { get; set; }
+}
+
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
     public DbSet<User> Users => Set<User>();
@@ -101,6 +145,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Group> Groups => Set<Group>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+
+    public DbSet<Subscription> Subscriptions => Set<Subscription>();
+
+    public DbSet<Payment> Payments => Set<Payment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -142,6 +190,21 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             member.HasIndex(m => m.UserId);
             member.HasOne<Group>().WithMany().HasForeignKey(m => m.GroupId).OnDelete(DeleteBehavior.Cascade);
             member.HasOne<User>().WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Subscription>(subscription =>
+        {
+            subscription.HasKey(s => s.UserId);
+            subscription.HasOne<User>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Payment>(payment =>
+        {
+            payment.HasIndex(p => p.UserId);
+            payment.HasIndex(p => p.CheckoutId).IsUnique();
+            payment.Property(p => p.OfferId).HasMaxLength(40);
+            payment.Property(p => p.CheckoutId).HasMaxLength(64);
+            payment.HasOne<User>().WithMany().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 
