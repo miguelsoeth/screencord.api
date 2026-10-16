@@ -96,6 +96,7 @@ public sealed class GroupTests : IAsyncLifetime
         private readonly Channel<GroupPresenceDto> _presence = Channel.CreateUnbounded<GroupPresenceDto>();
         private readonly Channel<GroupDto> _groups = Channel.CreateUnbounded<GroupDto>();
         private readonly Channel<Guid> _removed = Channel.CreateUnbounded<Guid>();
+        private readonly Channel<bool> _friendsChanged = Channel.CreateUnbounded<bool>();
 
         public HubClient(HubConnection connection)
         {
@@ -103,6 +104,7 @@ public sealed class GroupTests : IAsyncLifetime
             connection.On<GroupPresenceDto>(GroupsHubContract.PresenceChanged, p => _presence.Writer.TryWrite(p));
             connection.On<GroupDto>(GroupsHubContract.GroupChanged, g => _groups.Writer.TryWrite(g));
             connection.On<Guid>(GroupsHubContract.GroupRemoved, id => _removed.Writer.TryWrite(id));
+            connection.On(GroupsHubContract.FriendsChanged, () => _friendsChanged.Writer.TryWrite(true));
         }
 
         public HubConnection Connection { get; }
@@ -117,6 +119,8 @@ public sealed class GroupTests : IAsyncLifetime
         public Task<GroupDto> NextGroupAsync(Func<GroupDto, bool> match) => NextAsync(_groups, match);
 
         public Task<Guid> NextRemovedAsync() => NextAsync(_removed, _ => true);
+
+        public Task NextFriendsChangedAsync() => NextAsync(_friendsChanged, _ => true);
 
         private static async Task<T> NextAsync<T>(Channel<T> channel, Func<T, bool> match)
         {
@@ -338,6 +342,28 @@ public sealed class GroupTests : IAsyncLifetime
 
         Assert.Equal(2, (await bruno.NextGroupAsync(g => g.Id == group.Id)).MemberCount);
         Assert.Equal(2, (await ana.NextGroupAsync(g => g.Id == group.Id && g.MemberCount == 2)).MemberCount);
+    }
+
+    [Fact]
+    public async Task Amizade_CadaMudancaAvisaOsDoisLadosPeloHub()
+    {
+        var ana = await ConnectAsync(_ana);
+        var bruno = await ConnectAsync(_bruno);
+
+        (await _ana.PostAsJsonAsync("/friends/requests", new FriendRequestCreate(_brunoUser.Id))).EnsureSuccessStatusCode();
+        await Task.WhenAll(ana.NextFriendsChangedAsync(), bruno.NextFriendsChangedAsync());
+
+        (await _bruno.PostAsync($"/friends/requests/{_anaUser.Id}/accept", null)).EnsureSuccessStatusCode();
+        await Task.WhenAll(ana.NextFriendsChangedAsync(), bruno.NextFriendsChangedAsync());
+
+        (await _bruno.DeleteAsync($"/friends/{_anaUser.Id}")).EnsureSuccessStatusCode();
+        await Task.WhenAll(ana.NextFriendsChangedAsync(), bruno.NextFriendsChangedAsync());
+
+        (await _ana.PostAsJsonAsync("/friends/requests", new FriendRequestCreate(_brunoUser.Id))).EnsureSuccessStatusCode();
+        await Task.WhenAll(ana.NextFriendsChangedAsync(), bruno.NextFriendsChangedAsync());
+
+        (await _bruno.DeleteAsync($"/friends/requests/{_anaUser.Id}")).EnsureSuccessStatusCode();
+        await Task.WhenAll(ana.NextFriendsChangedAsync(), bruno.NextFriendsChangedAsync());
     }
 
     [Fact]

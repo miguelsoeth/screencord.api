@@ -221,6 +221,9 @@ public static class GroupsHubContract
     /// <summary>Servidor → cliente: id do grupo do qual o usuário deixou de fazer parte.</summary>
     public const string GroupRemoved = "GroupRemoved";
 
+    /// <summary>Servidor → cliente (sem argumentos): amigos ou solicitações de amizade do usuário mudaram; recarregue as listas.</summary>
+    public const string FriendsChanged = "FriendsChanged";
+
     /// <summary>Cliente → servidor: <see cref="ScreenShareStart"/>; começa a compartilhar a tela na sala atual. Retorna o <see cref="ScreenShareDto"/> ou null.</summary>
     public const string StartScreenShare = "StartScreenShare";
 
