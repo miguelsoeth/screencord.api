@@ -49,6 +49,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     {
         _connection.Open();
         builder.UseEnvironment("Testing");
+
+        // Os clientes dos testes não mandam a versão (contam como 0.1.0); a versão mínima tem testes próprios.
+        builder.UseSetting("Clients:MinVersion", "0.1.0");
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<DbContextOptions<AppDbContext>>();

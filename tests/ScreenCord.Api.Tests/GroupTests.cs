@@ -151,6 +151,39 @@ public sealed class GroupTests : IAsyncLifetime
         Assert.Equal(_anaUser.Id, Assert.Single(details.Members).Id);
     }
 
+    [Fact]
+    public async Task Criar_AlemDoLimitePorConta_Retorna409()
+    {
+        for (var i = 0; i < GroupsHubContract.MaxCreatedGroups; i++)
+        {
+            await CreateGroupAsync(_ana, $"Grupo {i}");
+        }
+
+        var response = await _ana.PostAsJsonAsync("/groups", new GroupCreate("Mais um"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("group_limit", (await response.Content.ReadFromJsonAsync<ErrorResponse>())!.Code);
+
+        // O limite é por conta: outra pessoa ainda cria.
+        await CreateGroupAsync(_bruno, "Do Bruno");
+    }
+
+    [Fact]
+    public async Task Criar_SairDeUmGrupoCriadoLiberaEspaco()
+    {
+        await MakeFriendsAsync(_ana, _anaUser, _bruno, _brunoUser);
+        var groups = new List<GroupDto>();
+        for (var i = 0; i < GroupsHubContract.MaxCreatedGroups; i++)
+        {
+            groups.Add(await CreateGroupAsync(_ana, $"Grupo {i}"));
+        }
+
+        (await AddMemberAsync(_ana, groups[0].Id, _brunoUser)).EnsureSuccessStatusCode();
+        (await _ana.DeleteAsync($"/groups/{groups[0].Id}/members/me")).EnsureSuccessStatusCode();
+
+        await CreateGroupAsync(_ana, "Outro");
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

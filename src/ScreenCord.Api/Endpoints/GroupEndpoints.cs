@@ -22,9 +22,11 @@ public static class GroupEndpoints
             .Produces<List<GroupDto>>();
         groups.MapPost("", CreateGroupAsync)
             .WithSummary("Cria um grupo")
-            .WithDescription($"O nome tem de 1 a {GroupsHubContract.MaxNameLength} caracteres. Quem cria vira o primeiro integrante.")
+            .WithDescription($"O nome tem de 1 a {GroupsHubContract.MaxNameLength} caracteres. Quem cria vira o primeiro integrante. " +
+                $"Cada conta pode ter até {GroupsHubContract.MaxCreatedGroups} grupos criados por ela (contam os que ela ainda integra).")
             .Produces<GroupDto>(StatusCodes.Status201Created)
-            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest);
+            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorResponse>(StatusCodes.Status409Conflict);
         groups.MapGet("/{groupId:guid}", GetGroupAsync)
             .WithSummary("Integrantes de um grupo, com quem está conectado")
             .Produces<GroupDetailsDto>()
@@ -78,6 +80,15 @@ public static class GroupEndpoints
         if (name.Length is 0 or > GroupsHubContract.MaxNameLength)
         {
             return ApiResults.Error(StatusCodes.Status400BadRequest, "invalid_name", $"O nome do grupo deve ter de 1 a {GroupsHubContract.MaxNameLength} caracteres.");
+        }
+
+        // Grupos de que a pessoa saiu não contam: ela não consegue mais excluí-los para liberar espaço.
+        var created = await db.Groups.CountAsync(
+            g => g.CreatedById == me && db.GroupMembers.Any(m => m.GroupId == g.Id && m.UserId == me), cancellationToken);
+        if (created >= GroupsHubContract.MaxCreatedGroups)
+        {
+            return ApiResults.Error(StatusCodes.Status409Conflict, "group_limit",
+                $"Você já criou {GroupsHubContract.MaxCreatedGroups} grupos, o limite por conta. Exclua um para criar outro.");
         }
 
         var now = time.GetUtcNow();
