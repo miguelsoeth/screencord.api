@@ -38,6 +38,7 @@ builder.Services.AddScreenCordOpenApi();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<GroupPresence>();
 builder.Services.AddSingleton<GroupNotifier>();
+builder.Services.AddSingleton<FriendNotifier>();
 builder.Services.AddSingleton<MediaRelay>();
 
 builder.Services.AddRateLimiter(options =>

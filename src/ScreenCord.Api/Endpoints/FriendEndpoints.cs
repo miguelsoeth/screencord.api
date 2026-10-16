@@ -1,5 +1,6 @@
 using ScreenCord.Api.Auth;
 using ScreenCord.Api.Data;
+using ScreenCord.Api.Realtime;
 using ScreenCord.Contracts;
 using Microsoft.EntityFrameworkCore;
 
@@ -129,6 +130,7 @@ public static class FriendEndpoints
         FriendRequestCreate request,
         HttpContext context,
         AppDbContext db,
+        FriendNotifier notifier,
         TimeProvider time,
         CancellationToken cancellationToken)
     {
@@ -168,6 +170,7 @@ public static class FriendEndpoints
                 return ApiResults.Error(StatusCodes.Status409Conflict, "conflict", "A relação com este usuário acabou de mudar. Atualize e tente novamente.");
             }
 
+            await notifier.FriendsChangedAsync(me, target.Id, cancellationToken);
             return Results.Created($"/friends/requests/{target.Id}", target.ToDto(RelationshipStatus.PendingOutgoing));
         }
 
@@ -185,6 +188,7 @@ public static class FriendEndpoints
         existing.Status = FriendshipStatus.Accepted;
         existing.AcceptedAtUtc = time.GetUtcNow();
         await db.SaveChangesAsync(cancellationToken);
+        await notifier.FriendsChangedAsync(me, target.Id, cancellationToken);
         return Results.Ok(target.ToDto(RelationshipStatus.Friend));
     }
 
@@ -192,6 +196,7 @@ public static class FriendEndpoints
         Guid userId,
         HttpContext context,
         AppDbContext db,
+        FriendNotifier notifier,
         TimeProvider time,
         CancellationToken cancellationToken)
     {
@@ -207,11 +212,17 @@ public static class FriendEndpoints
         request.Status = FriendshipStatus.Accepted;
         request.AcceptedAtUtc = time.GetUtcNow();
         await db.SaveChangesAsync(cancellationToken);
+        await notifier.FriendsChangedAsync(me, userId, cancellationToken);
         return Results.NoContent();
     }
 
     /// <summary>Recusa uma solicitação recebida ou cancela uma enviada.</summary>
-    private static async Task<IResult> DeleteRequestAsync(Guid userId, HttpContext context, AppDbContext db, CancellationToken cancellationToken)
+    private static async Task<IResult> DeleteRequestAsync(
+        Guid userId,
+        HttpContext context,
+        AppDbContext db,
+        FriendNotifier notifier,
+        CancellationToken cancellationToken)
     {
         var me = context.User.GetUserId();
         var existing = await FindAsync(db, me, userId, cancellationToken);
@@ -222,10 +233,16 @@ public static class FriendEndpoints
 
         db.Friendships.Remove(existing);
         await db.SaveChangesAsync(cancellationToken);
+        await notifier.FriendsChangedAsync(me, userId, cancellationToken);
         return Results.NoContent();
     }
 
-    private static async Task<IResult> RemoveFriendAsync(Guid userId, HttpContext context, AppDbContext db, CancellationToken cancellationToken)
+    private static async Task<IResult> RemoveFriendAsync(
+        Guid userId,
+        HttpContext context,
+        AppDbContext db,
+        FriendNotifier notifier,
+        CancellationToken cancellationToken)
     {
         var me = context.User.GetUserId();
         var existing = await FindAsync(db, me, userId, cancellationToken);
@@ -236,6 +253,7 @@ public static class FriendEndpoints
 
         db.Friendships.Remove(existing);
         await db.SaveChangesAsync(cancellationToken);
+        await notifier.FriendsChangedAsync(me, userId, cancellationToken);
         return Results.NoContent();
     }
 
