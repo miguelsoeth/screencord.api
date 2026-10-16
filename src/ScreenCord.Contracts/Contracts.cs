@@ -102,23 +102,28 @@ public sealed record ScreenShareDto(Guid UserId, int Width, int Height, int Fram
 
 /// <summary>
 /// Limites do compartilhamento de tela, validados pela API e oferecidos pelo aplicativo.
-/// A largura acompanha a proporção da tela ou janela; a altura é a resolução escolhida (540p, 720p, 1080p).
+/// A largura acompanha a proporção da tela ou janela; a altura é a resolução escolhida: 540p a 60 fps ou
+/// 720p a 30 fps (1080p fica para um plano pago).
 /// </summary>
 public static class ScreenShareLimits
 {
-    public static readonly int[] Heights = [540, 720, 1080];
+    public static readonly int[] Heights = [540, 720];
 
     public static readonly int[] FrameRates = [30, 60];
 
-    /// <summary>Taxa de bits: de 2000 a 7000 kbps, de 500 em 500.</summary>
-    public const int MinBitrateKbps = 2000;
+    /// <summary>Maior altura a 60 fps; acima dela, só 30 fps.</summary>
+    public const int MaxHeightAt60Fps = 540;
 
-    public const int MaxBitrateKbps = 7000;
+    /// <summary>Teto da taxa de bits. O aplicativo não deixa escolher: adapta a taxa à rede, até este valor.</summary>
+    public const int MaxBitrateKbps = 3000;
 
-    public const int BitrateStepKbps = 500;
+    public const int MinBitrateKbps = 300;
 
-    public static bool IsValidBitrate(int kbps) =>
-        kbps is >= MinBitrateKbps and <= MaxBitrateKbps && (kbps - MinBitrateKbps) % BitrateStepKbps == 0;
+    public static bool IsValidBitrate(int kbps) => kbps is >= MinBitrateKbps and <= MaxBitrateKbps;
+
+    /// <summary>A altura e o fps estão dentro do plano (a altura real pode ser menor, numa janela pequena).</summary>
+    public static bool IsValidQuality(int height, int frameRate) =>
+        height <= Heights.Max() && FrameRates.Contains(frameRate) && (frameRate <= 30 || height <= MaxHeightAt60Fps);
 
     /// <summary>Janelas muito largas (ex.: monitores ultrawide) podem passar de 16:9.</summary>
     public const int MaxWidth = 3840;
@@ -128,8 +133,8 @@ public static class ScreenShareLimits
     public static bool IsValid(ScreenShareStart? start) =>
         start is not null &&
         start.Width is >= MinSize and <= MaxWidth && start.Width % 2 == 0 &&
-        start.Height >= MinSize && start.Height <= Heights.Max() && start.Height % 2 == 0 &&
-        FrameRates.Contains(start.FrameRate) &&
+        start.Height >= MinSize && start.Height % 2 == 0 &&
+        IsValidQuality(start.Height, start.FrameRate) &&
         IsValidBitrate(start.BitrateKbps);
 }
 
@@ -204,7 +209,10 @@ public static class GroupsHubContract
 
     public const int MaxNameLength = 40;
 
-    public const int MaxMembers = 20;
+    public const int MaxMembers = 10;
+
+    /// <summary>Quantos grupos cada conta pode ter criado ao mesmo tempo (participar de grupos de outros não conta).</summary>
+    public const int MaxCreatedGroups = 5;
 
     /// <summary>Cliente → servidor: entra na sala do grupo (sai da anterior). Retorna a presença atual ou null se não for integrante.</summary>
     public const string JoinGroup = "JoinGroup";

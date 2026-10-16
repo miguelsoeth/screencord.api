@@ -11,7 +11,7 @@ namespace ScreenCord.Api.Tests;
 public sealed class ScreenShareTests : IAsyncLifetime
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
-    private static readonly ScreenShareStart Hd = new(1280, 720, 30, 4000, true);
+    private static readonly ScreenShareStart Hd = new(1280, 720, 30, 3000, true);
 
     private readonly ApiFactory _factory = new();
     private readonly List<IAsyncDisposable> _disposables = [];
@@ -116,13 +116,13 @@ public sealed class ScreenShareTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData(1280, 720, 45, 4000)]
-    [InlineData(1280, 720, 30, 9000)]
-    [InlineData(1280, 720, 30, 7500)]
-    [InlineData(1280, 720, 30, 1500)]
-    [InlineData(1280, 720, 30, 4200)]
-    [InlineData(1280, 1440, 30, 4000)]
-    [InlineData(1281, 720, 30, 4000)]
+    [InlineData(1280, 720, 45, 3000)]
+    [InlineData(1280, 720, 30, 3500)]
+    [InlineData(1280, 720, 30, 200)]
+    [InlineData(1280, 720, 60, 3000)]   // 60 fps só até 540p
+    [InlineData(1920, 1080, 30, 3000)]  // 1080p fica para o plano pago
+    [InlineData(1280, 1440, 30, 3000)]
+    [InlineData(1281, 720, 30, 3000)]
     public async Task Compartilhar_ConfiguracaoForaDasOpcoes_RetornaNull(int width, int height, int fps, int kbps)
     {
         var hub = await ConnectHubAsync(_ana);
@@ -141,7 +141,7 @@ public sealed class ScreenShareTests : IAsyncLifetime
 
         var share = await ana.StartAsync(Hd);
 
-        Assert.Equal(new ScreenShareDto(_anaUser.Id, 1280, 720, 30, 4000, true), share);
+        Assert.Equal(new ScreenShareDto(_anaUser.Id, 1280, 720, 30, 3000, true), share);
         var announced = await bruno.NextPresenceAsync(p => p.ScreenShares?.Count == 1);
         Assert.Equal(share, announced.ScreenShares![0]);
         var listed = Assert.Single((await _bruno.GetFromJsonAsync<List<GroupDto>>("/groups"))!);
@@ -299,11 +299,11 @@ public sealed class ScreenShareTests : IAsyncLifetime
         Assert.Equal(MediaContract.Video, (await ReceiveAsync(viewer))![0]);
 
         // Mesma conexão, novo anúncio com outra configuração, e um canal de mídia novo.
-        var fullHd = new ScreenShareStart(1920, 1080, 60, 5000, true);
-        var replaced = await ana.StartAsync(fullHd);
-        Assert.Equal(1080, replaced!.Height);
-        var updated = await bruno.NextPresenceAsync(p => p.ScreenShares is { Count: 1 } shares && shares[0].Height == 1080);
-        Assert.Equal(5000, updated.ScreenShares![0].BitrateKbps);
+        var sd = new ScreenShareStart(960, 540, 60, 2500, true);
+        var replaced = await ana.StartAsync(sd);
+        Assert.Equal(540, replaced!.Height);
+        var updated = await bruno.NextPresenceAsync(p => p.ScreenShares is { Count: 1 } shares && shares[0].Height == 540);
+        Assert.Equal(2500, updated.ScreenShares![0].BitrateKbps);
         var newPublisher = await ConnectMediaAsync(_ana, _anaUser.Id);
 
         // O canal antigo é fechado pelo servidor; quem assiste passa a receber do novo, a partir de um quadro-chave.
@@ -315,7 +315,7 @@ public sealed class ScreenShareTests : IAsyncLifetime
 
         // O fechamento do canal antigo não encerrou o compartilhamento.
         var presence = await bruno.Connection.InvokeAsync<GroupPresenceDto?>(GroupsHubContract.JoinGroup, _group.Id);
-        Assert.Equal(1080, Assert.Single(presence!.ScreenShares!).Height);
+        Assert.Equal(540, Assert.Single(presence!.ScreenShares!).Height);
     }
 
     private sealed class Hub
