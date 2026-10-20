@@ -1,8 +1,10 @@
 using ScreenCord.Api.Auth;
 using ScreenCord.Api.Data;
+using ScreenCord.Api.Endpoints;
 using ScreenCord.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Options;
 
 namespace ScreenCord.Api.Realtime;
 
@@ -18,6 +20,7 @@ public sealed class GroupsHub(
     GroupNotifier notifier,
     MediaRelay relay,
     AppDbContext db,
+    IOptions<RelayLimitsOptions> relayLimits,
     ILogger<GroupsHub> logger) : Hub
 {
     /// <summary>Entra na sala do grupo, saindo da anterior. Retorna null se o usuário não for integrante.</summary>
@@ -59,11 +62,11 @@ public sealed class GroupsHub(
 
     /// <summary>
     /// Começa a compartilhar a tela na sala em que esta conexão está. Retorna null se a conexão não estiver
-    /// em nenhuma sala ou se as configurações forem inválidas. Depois disso, o aplicativo abre o canal de mídia.
+    /// em nenhuma sala ou se as configurações passarem dos limites do servidor. Depois disso, o aplicativo abre o canal de mídia.
     /// </summary>
     public async Task<ScreenShareDto?> StartScreenShare(ScreenShareStart start)
     {
-        if (!ScreenShareLimits.IsValid(start) || presence.StartShare(Context.ConnectionId, start) is not { } started)
+        if (!ScreenShareLimits.IsValid(start, relayLimits.Value.ToLimits()) || presence.StartShare(Context.ConnectionId, start) is not { } started)
         {
             return null;
         }
