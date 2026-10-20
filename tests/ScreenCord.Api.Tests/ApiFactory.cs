@@ -39,7 +39,8 @@ public sealed class FakeDiscordVerifier : IDiscordTokenVerifier
 }
 
 /// <summary>API real em memória, com SQLite em memória e o Discord simulado.</summary>
-public sealed class ApiFactory : WebApplicationFactory<Program>
+/// <param name="settings">Configurações a mais (ex.: <c>RelayLimits:MaxHeight</c>), acima das do appsettings.</param>
+public sealed class ApiFactory(IReadOnlyDictionary<string, string?>? settings = null) : WebApplicationFactory<Program>
 {
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
 
@@ -52,6 +53,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
         // Os clientes dos testes não mandam a versão (contam como 0.1.0); a versão mínima tem testes próprios.
         builder.UseSetting("Clients:MinVersion", "0.1.0");
+        foreach (var (key, value) in settings ?? new Dictionary<string, string?>())
+        {
+            builder.UseSetting(key, value);
+        }
+
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<DbContextOptions<AppDbContext>>();

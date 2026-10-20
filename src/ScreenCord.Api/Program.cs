@@ -17,6 +17,10 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, relo
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.Configure<DiscordOptions>(builder.Configuration.GetSection(DiscordOptions.SectionName));
+builder.Services.AddOptions<RelayLimitsOptions>()
+    .Bind(builder.Configuration.GetSection(RelayLimitsOptions.SectionName))
+    .Validate(o => o.ToLimits().IsSane, "RelayLimits fora do que o aplicativo sabe fazer.")
+    .ValidateOnStart();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default") ?? "Data Source=screencord.db"));
@@ -106,6 +110,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok", version, minClientVe
 app.MapAuthEndpoints();
 app.MapFriendEndpoints();
 app.MapGroupEndpoints();
+app.MapLimitsEndpoints();
 app.MapHub<GroupsHub>(GroupsHubContract.Path).RequireAuthorization();
 app.MapMediaEndpoints();
 

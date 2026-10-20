@@ -101,42 +101,65 @@ public sealed record ScreenShareStart(int Width, int Height, int FrameRate, int 
 public sealed record ScreenShareDto(Guid UserId, int Width, int Height, int FrameRate, int BitrateKbps, bool HasAudio);
 
 /// <summary>
-/// Limites do compartilhamento de tela, validados pela API e oferecidos pelo aplicativo.
-/// A largura acompanha a proporção da tela ou janela; a altura é a resolução escolhida: 540p a 60 fps ou
-/// 720p a 30 fps (1080p fica para um plano pago).
+/// Limites do compartilhamento de tela. A largura acompanha a proporção da tela ou janela; a altura é a resolução
+/// escolhida. A qualidade depende do caminho da mídia (<see cref="StreamLimits"/>): pelo servidor (gratuito, o
+/// padrão destas constantes) ou direto entre os computadores, nas salas locais do aplicativo.
 /// </summary>
 public static class ScreenShareLimits
 {
-    public static readonly int[] Heights = [540, 720];
+    /// <summary>Alturas oferecidas pelo aplicativo; as acima do limite do caminho aparecem desligadas.</summary>
+    public static readonly int[] Heights = [540, 720, 1080];
 
     public static readonly int[] FrameRates = [30, 60];
 
-    /// <summary>Maior altura a 60 fps; acima dela, só 30 fps.</summary>
-    public const int MaxHeightAt60Fps = 540;
-
-    /// <summary>Teto da taxa de bits. O aplicativo não deixa escolher: adapta a taxa à rede, até este valor.</summary>
-    public const int MaxBitrateKbps = 3000;
+    /// <summary>Teto da taxa de bits pelo servidor. O aplicativo não deixa escolher: adapta a taxa à rede, até o teto.</summary>
+    public const int MaxBitrateKbps = 1500;
 
     public const int MinBitrateKbps = 300;
-
-    public static bool IsValidBitrate(int kbps) => kbps is >= MinBitrateKbps and <= MaxBitrateKbps;
-
-    /// <summary>A altura e o fps estão dentro do plano (a altura real pode ser menor, numa janela pequena).</summary>
-    public static bool IsValidQuality(int height, int frameRate) =>
-        height <= Heights.Max() && FrameRates.Contains(frameRate) && (frameRate <= 30 || height <= MaxHeightAt60Fps);
 
     /// <summary>Janelas muito largas (ex.: monitores ultrawide) podem passar de 16:9.</summary>
     public const int MaxWidth = 3840;
 
     public const int MinSize = 64;
 
-    public static bool IsValid(ScreenShareStart? start) =>
+    public static bool IsValid(ScreenShareStart? start) => IsValid(start, StreamLimits.Relay);
+
+    public static bool IsValid(ScreenShareStart? start, StreamLimits limits) =>
         start is not null &&
         start.Width is >= MinSize and <= MaxWidth && start.Width % 2 == 0 &&
         start.Height >= MinSize && start.Height % 2 == 0 &&
-        IsValidQuality(start.Height, start.FrameRate) &&
-        IsValidBitrate(start.BitrateKbps);
+        limits.AllowsQuality(start.Height, start.FrameRate) &&
+        limits.AllowsBitrate(start.BitrateKbps);
 }
+
+/// <summary>
+/// Qualidade máxima de um caminho da mídia. Pelo servidor a banda é paga por quem mantém o ScreenCord, então é
+/// limitada (<see cref="Relay"/>, ajustável na API e informada em <c>GET /limits</c>); direto entre os computadores
+/// (<see cref="Direct"/>) quem paga é o upload de quem compartilha.
+/// </summary>
+/// <param name="MaxHeight">Maior altura (a real pode ser menor, numa janela pequena).</param>
+public sealed record StreamLimits(int MaxHeight, int MaxFrameRate, int MaxBitrateKbps)
+{
+    /// <summary>Pelo servidor: 540p a 30 fps, até 1,5 Mbps.</summary>
+    public static StreamLimits Relay { get; } = new(540, 30, ScreenShareLimits.MaxBitrateKbps);
+
+    /// <summary>Direto entre os computadores (salas locais): até 1080p a 60 fps, até 5 Mbps.</summary>
+    public static StreamLimits Direct { get; } = new(1080, 60, 5000);
+
+    public bool AllowsQuality(int height, int frameRate) =>
+        height <= MaxHeight && ScreenShareLimits.FrameRates.Contains(frameRate) && frameRate <= MaxFrameRate;
+
+    public bool AllowsBitrate(int kbps) => kbps >= ScreenShareLimits.MinBitrateKbps && kbps <= MaxBitrateKbps;
+
+    /// <summary>Os dados vêm de outra máquina: só limites dentro do que o aplicativo sabe fazer.</summary>
+    public bool IsSane =>
+        MaxHeight >= ScreenShareLimits.Heights.Min() && MaxHeight <= ScreenShareLimits.Heights.Max() &&
+        ScreenShareLimits.FrameRates.Contains(MaxFrameRate) &&
+        MaxBitrateKbps >= ScreenShareLimits.MinBitrateKbps && MaxBitrateKbps <= 50_000;
+}
+
+/// <summary>Resposta de <c>GET /limits</c>: o que a API aceita, para o aplicativo só oferecer o que cabe.</summary>
+public sealed record ServerLimitsDto(StreamLimits Relay);
 
 /// <summary>
 /// Canal de mídia do compartilhamento de tela: um WebSocket por compartilhamento, autenticado pelo
