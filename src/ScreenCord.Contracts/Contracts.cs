@@ -113,7 +113,7 @@ public static class ScreenShareLimits
     public static readonly int[] FrameRates = [30, 60];
 
     /// <summary>Teto da taxa de bits pelo servidor. O aplicativo não deixa escolher: adapta a taxa à rede, até o teto.</summary>
-    public const int MaxBitrateKbps = 1500;
+    public const int MaxBitrateKbps = 2500;
 
     public const int MinBitrateKbps = 300;
 
@@ -140,8 +140,8 @@ public static class ScreenShareLimits
 /// <param name="MaxHeight">Maior altura (a real pode ser menor, numa janela pequena).</param>
 public sealed record StreamLimits(int MaxHeight, int MaxFrameRate, int MaxBitrateKbps)
 {
-    /// <summary>Pelo servidor: 540p a 30 fps, até 1,5 Mbps.</summary>
-    public static StreamLimits Relay { get; } = new(540, 30, ScreenShareLimits.MaxBitrateKbps);
+    /// <summary>Pelo servidor: 720p a 30 fps, até 2,5 Mbps.</summary>
+    public static StreamLimits Relay { get; } = new(720, 30, ScreenShareLimits.MaxBitrateKbps);
 
     /// <summary>Direto entre os computadores (salas locais): até 1080p a 60 fps, até 5 Mbps.</summary>
     public static StreamLimits Direct { get; } = new(1080, 60, 5000);
