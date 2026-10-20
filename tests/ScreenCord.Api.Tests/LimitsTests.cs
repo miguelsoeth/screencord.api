@@ -31,13 +31,13 @@ public sealed class LimitsTests
     }
 
     [Fact]
-    public async Task Padrao_540pA30fpsAte1500kbps()
+    public async Task Padrao_720pA30fpsAte2500kbps()
     {
         using var factory = new ApiFactory();
 
         var limits = await factory.CreateClient().GetFromJsonAsync<ServerLimitsDto>("/limits");
 
-        Assert.Equal(new StreamLimits(540, 30, 1500), limits!.Relay);
+        Assert.Equal(new StreamLimits(720, 30, 2500), limits!.Relay);
         Assert.Equal(StreamLimits.Relay, limits.Relay);
     }
 
