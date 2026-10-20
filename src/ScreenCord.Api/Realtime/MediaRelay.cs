@@ -11,7 +11,7 @@ namespace ScreenCord.Api.Realtime;
 /// Cada espectador tem a própria fila: quem tem conexão lenta perde quadros (e volta no próximo quadro-chave)
 /// sem atrasar os outros nem quem compartilha.
 /// </summary>
-public sealed class MediaRelay(ILogger<MediaRelay> logger)
+public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
 {
     /// <summary>Intervalo mínimo entre pedidos de quadro-chave repassados a quem compartilha.</summary>
     private static readonly TimeSpan KeyframeRequestInterval = TimeSpan.FromMilliseconds(500);
@@ -26,7 +26,7 @@ public sealed class MediaRelay(ILogger<MediaRelay> logger)
     /// </summary>
     public async Task<bool> PublishAsync(WebSocket socket, Guid groupId, Guid sharerId, int bitrateKbps, CancellationToken cancellationToken)
     {
-        var session = new Session(socket, bitrateKbps, logger);
+        var session = new Session(socket, bitrateKbps, time, logger);
         if (_sessions.TryRemove((groupId, sharerId), out var previous))
         {
             // Outra janela da mesma conta recomeçou o compartilhamento: quem assistia passa a receber desta.
@@ -133,12 +133,13 @@ public sealed class MediaRelay(ILogger<MediaRelay> logger)
         }
     }
 
-    private sealed class Session(WebSocket publisher, int bitrateKbps, ILogger logger)
+    private sealed class Session(WebSocket publisher, int bitrateKbps, TimeProvider time, ILogger logger)
     {
         private readonly Lock _lock = new();
         private readonly List<Viewer> _viewers = [];
         private readonly SemaphoreSlim _sendGate = new(1, 1);
         private readonly CancellationTokenSource _closed = new();
+        private readonly PublisherRateLimit _rateLimit = new(bitrateKbps, time);
         private long _lastKeyframeRequestTicks;
 
         /// <summary>Cerca de 1 s de vídeo (no mínimo 512 KB, para caber um quadro-chave): mais que isso, o espectador está atrasado.</summary>
@@ -279,6 +280,23 @@ public sealed class MediaRelay(ILogger<MediaRelay> logger)
                         continue;
                     }
 
+                    switch (_rateLimit.Take(length))
+                    {
+                        case RateDecision.Drop:
+                            if (type == MediaContract.Video)
+                            {
+                                // Sem este pacote o vídeo não decodifica: quem assiste recomeça do próximo quadro-chave.
+                                ResetViewersToKeyframe();
+                            }
+
+                            continue;
+                        case RateDecision.Disconnect:
+                            logger.LogWarning(
+                                "Canal de mídia encerrado: enviou acima da taxa anunciada ({BitrateKbps} kbps) por tempo demais.", bitrateKbps);
+                            await CloseAsync(publisher, WebSocketCloseStatus.PolicyViolation, "Taxa acima da anunciada.");
+                            return;
+                    }
+
                     Broadcast(new Packet(buffer.AsSpan(0, length).ToArray(), type, (flags & MediaContract.KeyframeFlag) != 0));
                 }
             }
@@ -296,6 +314,17 @@ public sealed class MediaRelay(ILogger<MediaRelay> logger)
             finally
             {
                 ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        private void ResetViewersToKeyframe()
+        {
+            lock (_lock)
+            {
+                foreach (var viewer in _viewers)
+                {
+                    viewer.ResetToKeyframe();
+                }
             }
         }
 
