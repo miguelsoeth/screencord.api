@@ -183,6 +183,35 @@ public sealed class ScreenShareTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task MidiaMuitoAcimaDaTaxaAnunciada_EncerraOCompartilhamento()
+    {
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+        await ana.StartAsync(Hd);
+        var publisher = await ConnectMediaAsync(_ana, _anaUser.Id);
+        await bruno.NextPresenceAsync(p => p.ScreenShares?.Count == 1);
+
+        // Anuncia 1500 kbps e manda vários MB de uma vez.
+        var flood = Packet(MediaContract.Video, keyframe: true, new byte[60_000]);
+        try
+        {
+            for (var i = 0; i < 200 && publisher.State == WebSocketState.Open; i++)
+            {
+                await SendAsync(publisher, flood);
+            }
+        }
+        catch (Exception ex) when (ex is WebSocketException or InvalidOperationException or IOException)
+        {
+        }
+
+        Assert.Null(await ReceiveAsync(publisher));
+        Assert.Equal(WebSocketCloseStatus.PolicyViolation, publisher.CloseStatus);
+        await bruno.NextPresenceAsync(p => p.ScreenShares is { Count: 0 });
+    }
+
+    [Fact]
     public async Task VideoPausado_SoOAudioChega_EAoVoltarRecomecaPorUmQuadroChave()
     {
         var ana = await ConnectHubAsync(_ana);
