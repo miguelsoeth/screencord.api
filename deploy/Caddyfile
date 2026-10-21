@@ -1,13 +1,5 @@
-# HTTPS direto no IP, com certificado da Let's Encrypt. Certificados de IP só existem no perfil
-# "shortlived" (validade de ~6 dias); o Caddy renova sozinho. PUBLIC_IP vem do arquivo .env.
-# Quando houver domínio: troque {$PUBLIC_IP} pelo domínio e remova default_sni e cert_issuer.
-{
-	default_sni {$PUBLIC_IP}
-	cert_issuer acme {
-		profile shortlived
-	}
-}
-
-{$PUBLIC_IP} {
+# HTTPS com certificado da Let's Encrypt para o domínio, emitido e renovado pelo Caddy.
+# O registro A de api.screencord.miguelsoeth.online (DNS na GoDaddy) aponta para o IP do VPS.
+api.screencord.miguelsoeth.online {
 	reverse_proxy api:8080
 }
