@@ -31,7 +31,7 @@ jobs:
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
       PUBLIC_URL: https://api.screencord.miguelsoeth.online
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Configurar SSH
         run: |
