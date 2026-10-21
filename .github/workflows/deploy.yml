@@ -29,6 +29,7 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      PUBLIC_URL: https://api.screencord.miguelsoeth.online
     steps:
       - uses: actions/checkout@v5
 
@@ -49,4 +50,4 @@ jobs:
           ssh "deploy@$DEPLOY_HOST" "chmod +x /srv/screencord/*.sh && /srv/screencord/deploy.sh '${VERSION#v}'; status=\$?; docker logout ghcr.io; exit \$status"
 
       - name: Verificar pelo HTTPS
-        run: curl -fsS --retry 5 --retry-all-errors --retry-delay 3 "https://$DEPLOY_HOST/health"
+        run: curl -fsS --retry 10 --retry-all-errors --retry-delay 3 "$PUBLIC_URL/health"
