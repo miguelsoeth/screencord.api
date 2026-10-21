@@ -103,12 +103,14 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.MapScreenCordOpenApi();
+
+// Canal de mídia do compartilhamento de tela. O ping mantém a conexão viva atrás de proxies.
+// Antes das métricas: só depois dele a requisição se identifica como WebSocket (as conexões abertas do painel).
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
+
 // Antes da versão mínima, para medir também as requisições recusadas por ela.
 app.UseRequestMetrics();
 app.UseClientVersionGate(minClientVersion);
-
-// Canal de mídia do compartilhamento de tela. O ping mantém a conexão viva atrás de proxies.
-app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
 
 app.UseAuthentication();
 app.UseActiveUsers();
