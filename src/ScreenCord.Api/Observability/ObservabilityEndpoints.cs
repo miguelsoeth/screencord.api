@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using ScreenCord.Api.Data;
 using ScreenCord.Api.Endpoints;
 using ScreenCord.Api.Versioning;
@@ -76,6 +77,7 @@ public static class ObservabilityEndpoints
         }
 
         var now = time.GetUtcNow();
+        var device = Details(report.Device);
         var userId = Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : (Guid?)null;
         foreach (var entry in report.Entries.Where(e => e is not null).Take(TelemetryContract.MaxEntries))
         {
@@ -101,11 +103,46 @@ public static class ObservabilityEndpoints
                 InstallId = report.InstallId == Guid.Empty ? null : report.InstallId,
                 RunId = report.RunId == Guid.Empty ? null : report.RunId,
                 UserId = userId,
+                Device = device,
+                Context = Details(entry.Context),
+                Breadcrumbs = Breadcrumbs(entry.Breadcrumbs),
             });
         }
 
         await db.SaveChangesAsync(cancellationToken);
         return Results.Accepted();
+    }
+
+    /// <summary>Pares chave/valor do aplicativo em JSON, com limite de quantidade e de tamanho.</summary>
+    private static string? Details(IReadOnlyDictionary<string, string>? values)
+    {
+        if (values is null || values.Count == 0)
+        {
+            return null;
+        }
+
+        var kept = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (key, value) in values.Where(p => !string.IsNullOrWhiteSpace(p.Key)).Take(TelemetryContract.MaxContextEntries))
+        {
+            kept[ErrorFingerprint.Truncate(key.Trim(), 60)!] = ErrorFingerprint.Truncate(value ?? "", 300)!;
+        }
+
+        var json = JsonSerializer.Serialize(kept);
+        return json.Length <= ErrorEvent.MaxDetailsLength ? json : null;
+    }
+
+    private static string? Breadcrumbs(IReadOnlyList<string>? lines)
+    {
+        if (lines is null || lines.Count == 0)
+        {
+            return null;
+        }
+
+        // Fica com as mais novas, que são as que levaram ao erro.
+        var kept = lines.Where(l => !string.IsNullOrEmpty(l)).TakeLast(TelemetryContract.MaxBreadcrumbs)
+            .Select(l => ErrorFingerprint.Truncate(l.ReplaceLineEndings(" "), 280)!);
+        var text = string.Join('\n', kept);
+        return text.Length == 0 ? null : text.Length <= ErrorEvent.MaxBreadcrumbsLength ? text : text[^ErrorEvent.MaxBreadcrumbsLength..];
     }
 
     private static async Task<IResult> SummaryAsync(int? hours, RequestMetrics metrics, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)

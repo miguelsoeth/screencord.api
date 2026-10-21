@@ -52,6 +52,11 @@
   .event { border-top: 1px solid var(--border); padding: 10px 0; }
   .event:first-child { border-top: 0; }
   .event .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+  details { margin: 6px 0 0; }
+  summary { cursor: pointer; color: var(--text-2); font-size: 12px; }
+  table.kv { width: auto; margin-top: 4px; font-size: 12px; }
+  table.kv td { padding: 2px 12px 2px 0; border: 0; }
+  table.kv td:first-child { color: var(--muted); white-space: nowrap; font-family: ui-monospace, monospace; }
   a.trace { color: var(--series); cursor: pointer; text-decoration: underline; font-family: ui-monospace, monospace; font-size: 12px; }
   #tooltip { position: fixed; pointer-events: none; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; display: none; z-index: 10; }
   #login { max-width: 420px; margin: 15vh auto; display: grid; gap: 10px; }
@@ -312,6 +317,15 @@
       [el("tr", {}, el("td", { colspan: "6", class: "empty" }, "Nenhum erro no período."))]));
   }
 
+  // Pares chave/valor em JSON (estado do app, computador) como tabela recolhível.
+  function details(title, json, open) {
+    if (!json) return null;
+    let values;
+    try { values = JSON.parse(json); } catch { return null; }
+    const rows = Object.entries(values).map(([k, v]) => el("tr", {}, el("td", {}, k), el("td", {}, v)));
+    return rows.length ? el("details", open ? { open: "" } : {}, el("summary", {}, title), el("table", { class: "kv" }, el("tbody", {}, ...rows))) : null;
+  }
+
   async function loadEvents(filter, title) {
     const params = new URLSearchParams({ ...filter, limit: "50" });
     const events = await api("events?" + params);
@@ -326,7 +340,10 @@
       ev.request ? el("div", { class: "muted" }, ev.request) : null,
       ev.installId ? el("div", { class: "muted" }, `instalação ${ev.installId.slice(0, 8)} · execução ${(ev.runId || "").slice(0, 8)}`) : null,
       ev.userId ? el("div", { class: "muted" }, `usuário ${ev.userId}`) : null,
-      ev.exception ? el("pre", {}, ev.exception) : null)) : [el("div", { class: "empty" }, "Nenhuma ocorrência.")]));
+      ev.exception ? el("pre", {}, ev.exception) : null,
+      details("Estado do app no erro", ev.context, true),
+      ev.breadcrumbs ? el("details", { open: "" }, el("summary", {}, "Log antes do erro"), el("pre", {}, ev.breadcrumbs)) : null,
+      details("Computador", ev.device, false))) : [el("div", { class: "empty" }, "Nenhuma ocorrência.")]));
     $("events-section").hidden = false;
     $("events-section").scrollIntoView({ behavior: "smooth", block: "start" });
   }

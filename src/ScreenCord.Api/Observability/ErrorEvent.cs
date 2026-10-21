@@ -12,6 +12,8 @@ public sealed class ErrorEvent
 
     public const int MaxMessageLength = 4000;
     public const int MaxExceptionLength = 16000;
+    public const int MaxDetailsLength = 6000;
+    public const int MaxBreadcrumbsLength = 9000;
 
     public Guid Id { get; set; }
 
@@ -51,6 +53,15 @@ public sealed class ErrorEvent
 
     /// <summary>Requisição em que o erro aconteceu na API (ex.: <c>POST /groups → 500 (12 ms)</c>).</summary>
     public string? Request { get; set; }
+
+    /// <summary>Computador de quem mandou (placas de vídeo, telas, processador...), em JSON de pares chave/valor.</summary>
+    public string? Device { get; set; }
+
+    /// <summary>Estado do aplicativo no momento do erro (compartilhamento ativo, tempo aberto...), em JSON de pares chave/valor.</summary>
+    public string? Context { get; set; }
+
+    /// <summary>Últimas linhas do log do aplicativo antes do erro, uma por linha.</summary>
+    public string? Breadcrumbs { get; set; }
 }
 
 /// <summary>
