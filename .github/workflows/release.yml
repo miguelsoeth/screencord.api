@@ -6,6 +6,10 @@ on:
   push:
     tags: ["v*.*.*"]
 
+# Mínimo para todos os jobs; os que publicam pedem mais no próprio bloco.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
