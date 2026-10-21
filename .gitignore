@@ -493,3 +493,6 @@ publish/
 
 # Estado e logs do painel screencord.ps1
 .screencord/
+
+# Notas locais (acesso ao servidor): o repositório é público
+CLAUDE.local.md
