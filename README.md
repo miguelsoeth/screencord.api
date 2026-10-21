@@ -279,3 +279,11 @@ Verificado na documentação oficial (<https://docs.discord.com/developers>) em 
 - **PKCE** não aparece na página principal de OAuth2; o modo de cliente público está descrito na documentação do Social SDK (opção *Public Client*). Sem ela, a troca do código falha com `invalid_client`.
 - A renovação por refresh token sem `client_secret` depende do mesmo modo. Se o Discord recusar, a sessão local é apagada e o app volta para "Conectar com Discord".
 - Avatares animados são exibidos como imagem estática (PNG).
+
+## Licença
+
+A API do ScreenCord é software livre sob a [GNU Affero General Public License v3.0](LICENSE). Quem rodar uma versão modificada como serviço para outras pessoas precisa oferecer a elas o código-fonte dessa versão, também sob a AGPL-3.0. As licenças dos componentes de terceiros estão em [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
+
+O nome **ScreenCord**, o logo e os mascotes não fazem parte da licença: um fork precisa de outro nome e outra identidade visual.
+
+Para relatar uma vulnerabilidade, veja [SECURITY.md](SECURITY.md).

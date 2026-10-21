@@ -102,3 +102,9 @@ Restaurar um backup: `docker compose stop api`, apague `data/screencord.db-wal` 
 - A presença dos grupos fica em memória: a API roda com uma instância só. Todo deploy derruba as conexões SignalR e de mídia por alguns segundos; o app reconecta.
 - O app recusa `http` fora de localhost; a URL de produção do app é `https://154.16.50.20`.
 - Observabilidade (`Observability/`): métricas em memória, erros da API e do app na tabela `ErrorEvents` e o painel `/admin` (HTML em `dashboard.html`, recurso embutido). Os dados do painel vêm de relatórios anônimos: no HTML, tudo entra como texto (`textContent`), nunca como HTML. O `ErrorLogProvider` ignora as categorias do EF Core e de `Observability`, senão uma falha ao gravar vira um ciclo.
+
+## Licença
+
+- A API é AGPL-3.0 (`LICENSE`); o app é GPL-3.0. O nome e a marca ScreenCord ficam fora da licença.
+- Toda dependência nova precisa ter licença compatível com a AGPL-3.0 (MIT, BSD, Apache-2.0 servem) e entrar no `THIRD-PARTY-NOTICES.txt`.
+- Actions de terceiros (fora de `actions/*`) ficam fixadas pelo SHA do commit, com a versão num comentário.
