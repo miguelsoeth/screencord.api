@@ -55,6 +55,41 @@ public sealed class ObservabilityTests : IDisposable
     }
 
     [Fact]
+    public async Task RelatorioDoApp_LevaComputadorEstadoELogDeAntes_ParaCadaOcorrencia()
+    {
+        var device = new Dictionary<string, string> { ["gpu0"] = "NVIDIA GeForce RTX 3050 (driver 32.0.16.1088, 6001 MB)" };
+        var context = Enumerable.Range(0, 40).ToDictionary(i => $"chave{i:00}", i => i == 0 ? new string('v', 500) : "x");
+        var breadcrumbs = Enumerable.Range(0, 45).Select(i => $"01:23:{i:00}.000 INF ScreenShareService: linha {i}\r\nquebrada").ToList();
+        var entry = Entry() with { Context = context, Breadcrumbs = breadcrumbs };
+
+        var response = await _factory.CreateClient().PostAsJsonAsync(TelemetryContract.ErrorsPath, Report(entry) with { Device = device });
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var stored = Assert.Single((await Admin().GetFromJsonAsync<JsonElement>("/admin/api/events")).EnumerateArray());
+        var savedDevice = JsonSerializer.Deserialize<Dictionary<string, string>>(stored.GetProperty("device").GetString()!)!;
+        Assert.Equal(device["gpu0"], savedDevice["gpu0"]);
+        var savedContext = JsonSerializer.Deserialize<Dictionary<string, string>>(stored.GetProperty("context").GetString()!)!;
+        Assert.Equal(TelemetryContract.MaxContextEntries, savedContext.Count);
+        Assert.True(savedContext["chave00"].Length <= 301);
+
+        // Ficam as mais novas, uma por linha.
+        var lines = stored.GetProperty("breadcrumbs").GetString()!.Split('\n');
+        Assert.Equal(TelemetryContract.MaxBreadcrumbs, lines.Length);
+        Assert.Equal("01:23:44.000 INF ScreenShareService: linha 44 quebrada", lines[^1]);
+    }
+
+    [Fact]
+    public async Task RelatorioDeVersaoAntiga_SemOsCamposNovos_ContinuaAceito()
+    {
+        var response = await _factory.CreateClient().PostAsJsonAsync(TelemetryContract.ErrorsPath, Report(Entry()));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var stored = Assert.Single((await Admin().GetFromJsonAsync<JsonElement>("/admin/api/events")).EnumerateArray());
+        Assert.Equal(JsonValueKind.Null, stored.GetProperty("device").ValueKind);
+        Assert.Equal(JsonValueKind.Null, stored.GetProperty("breadcrumbs").ValueKind);
+    }
+
+    [Fact]
     public async Task RelatorioDoApp_InvalidoOuGrande_ERecusadoOuCortado()
     {
         var client = _factory.CreateClient();

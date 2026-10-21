@@ -282,24 +282,39 @@ public static class ClientVersionContract
 /// Relatório de erros do aplicativo (<see cref="TelemetryContract.ErrorsPath"/>). Não leva tokens nem dados
 /// de conta: <see cref="InstallId"/> é um id aleatório da instalação e <see cref="RunId"/>, desta execução.
 /// </summary>
+/// <param name="Device">
+/// Computador, igual em toda a execução: placas de vídeo e driver, telas, processador, memória, idioma
+/// (até <see cref="TelemetryContract.MaxContextEntries"/> pares). Ausente nas versões até 0.6.0.
+/// </param>
 public sealed record ClientErrorReport(
     string AppVersion,
     string? Os,
     string? Environment,
     Guid InstallId,
     Guid RunId,
-    IReadOnlyList<ClientLogEntry> Entries);
+    IReadOnlyList<ClientLogEntry> Entries,
+    IReadOnlyDictionary<string, string>? Device = null);
 
 /// <param name="Level">Nível do log (<c>Warning</c>, <c>Error</c>, <c>Critical</c>).</param>
 /// <param name="Exception">Tipo, mensagem e pilha da exceção, quando houver.</param>
 /// <param name="TraceId">Trace W3C da requisição à API que falhou (o mesmo que a API registra), quando houver.</param>
+/// <param name="Context">
+/// Estado do aplicativo no momento do erro: tela aberta, modo, tempo aberto, compartilhamento ativo (encoder,
+/// resolução...). Até <see cref="TelemetryContract.MaxContextEntries"/> pares.
+/// </param>
+/// <param name="Breadcrumbs">
+/// Últimas linhas do log (informação para cima) antes do erro, da mais antiga para a mais nova,
+/// até <see cref="TelemetryContract.MaxBreadcrumbs"/>.
+/// </param>
 public sealed record ClientLogEntry(
     DateTimeOffset TimestampUtc,
     string Level,
     string Category,
     string Message,
     string? Exception = null,
-    string? TraceId = null);
+    string? TraceId = null,
+    IReadOnlyDictionary<string, string>? Context = null,
+    IReadOnlyList<string>? Breadcrumbs = null);
 
 public static class TelemetryContract
 {
@@ -308,6 +323,12 @@ public static class TelemetryContract
 
     /// <summary>Entradas por relatório; o resto é descartado.</summary>
     public const int MaxEntries = 50;
+
+    /// <summary>Pares de <see cref="ClientErrorReport.Device"/> e de <see cref="ClientLogEntry.Context"/>; o resto é descartado.</summary>
+    public const int MaxContextEntries = 30;
+
+    /// <summary>Linhas de <see cref="ClientLogEntry.Breadcrumbs"/>; o resto é descartado.</summary>
+    public const int MaxBreadcrumbs = 30;
 
     /// <summary>Cabeçalho de resposta da API com o trace da requisição (o mesmo do <c>traceparent</c> enviado).</summary>
     public const string TraceIdHeader = "X-Trace-Id";

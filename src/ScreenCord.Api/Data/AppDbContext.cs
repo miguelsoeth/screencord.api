@@ -164,6 +164,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             error.Property(e => e.Os).HasMaxLength(100);
             error.Property(e => e.Environment).HasMaxLength(32);
             error.Property(e => e.Request).HasMaxLength(300);
+            error.Property(e => e.Device).HasMaxLength(ErrorEvent.MaxDetailsLength + 1);
+            error.Property(e => e.Context).HasMaxLength(ErrorEvent.MaxDetailsLength + 1);
+            error.Property(e => e.Breadcrumbs).HasMaxLength(ErrorEvent.MaxBreadcrumbsLength + 1);
         });
     }
 
