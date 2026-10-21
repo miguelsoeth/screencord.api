@@ -152,7 +152,7 @@ Com a API rodando em Development (o padrão do `screencord.ps1` e do `dotnet run
 
 Fora de Development as duas rotas não são publicadas.
 
-Todas as rotas, exceto `/health` e `/auth/discord`, exigem `Authorization: Bearer <token de sessão>`.
+Todas as rotas, exceto `/health`, `/limits`, `/auth/discord`, `/telemetry/errors` e o painel `/admin`, exigem `Authorization: Bearer <token de sessão>`.
 
 | Método e rota | Descrição |
 |---|---|
@@ -176,6 +176,17 @@ Todas as rotas, exceto `/health` e `/auth/discord`, exigem `Authorization: Beare
 | `DELETE /groups/{groupId}` | Exclui o grupo para todos (só quem criou; 403 `not_group_owner` para os outros). Todos saem da sala, os compartilhamentos terminam e cada integrante recebe `GroupRemoved`. `GET /groups/{groupId}` traz `canDelete`. |
 
 `relationship` é `None`, `Friend`, `PendingOutgoing` ou `PendingIncoming`. Erros retornam `{ "code": "...", "message": "..." }`.
+
+### Observabilidade
+
+Tudo dentro da própria API, sem serviço externo:
+
+- **Métricas** das requisições, em memória (últimas 24 h, por minuto e por rota): contagem, 4xx, 5xx e latência (média, p50, p95 e máxima, estimadas por faixas). Recomeçam a cada deploy. Também conta as conexões abertas do hub e da mídia.
+- **Traces:** toda resposta traz `X-Trace-Id`. O aplicativo manda `traceparent` (W3C) em cada chamada, então o trace é o mesmo dos dois lados.
+- **Erros da API:** logs de nível Error/Critical e respostas 5xx vão para a tabela `ErrorEvents` do SQLite, com o trace, a rota, a versão do app e o usuário.
+- **Erros do aplicativo:** `POST /telemetry/errors` (`ClientErrorReport` nos Contracts) recebe os avisos e erros do app em lotes, sem login (20 relatórios/min por IP, até 50 entradas cada, textos cortados, fora da versão mínima). Identifica só a instalação (id aleatório) e a execução.
+- **Painel:** `GET /admin`, protegido pelo token `Observability:DashboardToken` (cabeçalho `X-Admin-Token`; a página pede e guarda no navegador). Sem token configurado, `/admin` responde 404. Mostra os indicadores, os gráficos por minuto, as rotas, os problemas agrupados (mesma exceção e pilha, ou mesmo texto sem números) e cada ocorrência com a pilha; clicar no trace junta o erro do app e o da API daquela requisição. Em Development o token é `dev`: <http://localhost:5080/admin>.
+- Os erros ficam `Observability:RetentionDays` dias (padrão 30), no máximo `Observability:MaxEvents` (padrão 50000).
 
 ### Tempo real (SignalR)
 
@@ -257,7 +268,7 @@ Como o login chega à API:
 
 ## Privacidade
 
-Qualquer usuário autenticado pode encontrar qualquer outro usuário do sistema pela busca (nome de usuário, nome de exibição, ID do Discord e avatar). Informe isso a quem for usar o sistema. A API guarda somente esses dados de perfil, as datas de criação/último login e as relações de amizade.
+Qualquer usuário autenticado pode encontrar qualquer outro usuário do sistema pela busca (nome de usuário, nome de exibição, ID do Discord e avatar). Informe isso a quem for usar o sistema. A API guarda somente esses dados de perfil, as datas de criação/último login e as relações de amizade, além dos relatórios de erro do aplicativo (versão, Windows, id aleatório da instalação, mensagens de log e pilhas de exceção), apagados depois de 30 dias.
 
 ## Limitações reais da API do Discord
 

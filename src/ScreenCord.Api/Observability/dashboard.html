@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>ScreenCord Painel</title>
+<style>
+  :root {
+    --bg: #111110; --surface: #1a1a19; --surface-2: #232321; --border: #383835;
+    --text: #f0efec; --text-2: #c3c2b7; --muted: #8f8e86;
+    --series: #3987e5; --critical: #d03b3b; --warning: #fab219; --good: #0ca30c;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 18px; margin: 0; }
+  header .meta { color: var(--text-2); font-size: 13px; }
+  main { padding: 16px; max-width: 1280px; margin: 0 auto; display: grid; gap: 16px; }
+  section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; min-width: 0; }
+  section h2 { font-size: 15px; margin: 0 0 12px; display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  select, input, button { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font: inherit; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--text-2); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+  .tile .label { color: var(--text-2); font-size: 12px; }
+  .tile .value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .sub { color: var(--muted); font-size: 12px; }
+  .status { display: inline-flex; align-items: center; gap: 4px; }
+  .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--dot, var(--muted)); }
+  .status.bad { --dot: var(--critical); } .status.warn { --dot: var(--warning); } .status.ok { --dot: var(--good); }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .chart h3 { font-size: 13px; font-weight: 500; color: var(--text-2); margin: 0 0 6px; }
+  .chart svg { width: 100%; height: 140px; display: block; }
+  .chart .axis { fill: var(--muted); font-size: 10px; }
+  .chart .grid { stroke: var(--border); stroke-width: 1; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--text-2); font-weight: 500; font-size: 12px; white-space: nowrap; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td, tr.selected td { background: var(--surface-2); }
+  .msg { max-width: 560px; overflow-wrap: anywhere; }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 11px; border: 1px solid var(--border); color: var(--text-2); }
+  .muted { color: var(--muted); }
+  .empty { color: var(--muted); padding: 12px 0; }
+  pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; overflow-x: auto; font-size: 12px; white-space: pre; margin: 6px 0 0; }
+  .event { border-top: 1px solid var(--border); padding: 10px 0; }
+  .event:first-child { border-top: 0; }
+  .event .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+  a.trace { color: var(--series); cursor: pointer; text-decoration: underline; font-family: ui-monospace, monospace; font-size: 12px; }
+  #tooltip { position: fixed; pointer-events: none; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; display: none; z-index: 10; }
+  #login { max-width: 420px; margin: 15vh auto; display: grid; gap: 10px; }
+  #login p { color: var(--text-2); margin: 0; }
+  .error-text { color: var(--critical); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <h1>ScreenCord · Painel</h1>
+  <p>Informe o token do painel (<code>Observability__DashboardToken</code> no api.env).</p>
+  <form id="login-form" class="controls">
+    <input id="token" type="password" autocomplete="current-password" placeholder="Token" style="flex:1">
+    <button type="submit">Entrar</button>
+  </form>
+  <p id="login-error" class="error-text"></p>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div>
+      <h1>ScreenCord · Painel</h1>
+      <div class="meta" id="meta"></div>
+    </div>
+    <div class="controls">
+      <label class="muted" for="period">Requisições</label>
+      <select id="period"><option value="1">última hora</option><option value="6">6 horas</option><option value="24">24 horas</option></select>
+      <button id="refresh" type="button">Atualizar</button>
+      <button id="logout" type="button">Sair</button>
+    </div>
+  </header>
+  <main>
+    <div class="tiles" id="tiles"></div>
+
+    <section>
+      <h2>Requisições por minuto</h2>
+      <div class="charts">
+        <div class="chart"><h3>Requisições</h3><svg id="chart-requests" role="img" aria-label="Requisições por minuto"></svg></div>
+        <div class="chart"><h3>Erros 5xx</h3><svg id="chart-errors" role="img" aria-label="Erros 5xx por minuto"></svg></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Rotas</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Rota</th><th class="num">Requisições</th><th class="num">4xx</th><th class="num">5xx</th><th class="num">Média</th><th class="num">p50</th><th class="num">p95</th><th class="num">Máx.</th></tr></thead>
+        <tbody id="routes"></tbody>
+      </table></div>
+    </section>
+
+    <section>
+      <h2>Problemas
+        <span class="controls">
+          <select id="issue-source"><option value="">app e API</option><option value="app">só app</option><option value="api">só API</option></select>
+          <select id="issue-hours"><option value="24">24 horas</option><option value="168">7 dias</option><option value="720">30 dias</option></select>
+        </span>
+      </h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Origem</th><th>Problema</th><th class="num">Ocorrências</th><th class="num">Afetados</th><th>Versões</th><th>Última vez</th></tr></thead>
+        <tbody id="issues"></tbody>
+      </table></div>
+    </section>
+
+    <section id="events-section" hidden>
+      <h2><span id="events-title">Ocorrências</span> <button id="events-close" type="button">Fechar</button></h2>
+      <div id="events"></div>
+    </section>
+  </main>
+</div>
+<div id="tooltip"></div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const storage = {
+    get() { try { return localStorage.getItem("screencord-admin-token") || ""; } catch { return ""; } },
+    set(v) { try { v ? localStorage.setItem("screencord-admin-token", v) : localStorage.removeItem("screencord-admin-token"); } catch { } },
+  };
+  let token = storage.get();
+  let selectedIssue = null;
+  const nf = new Intl.NumberFormat("pt-BR");
+  const timeFmt = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const dateFmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+  // Os dados vêm de relatórios anônimos do aplicativo: tudo entra como texto, nunca como HTML.
+  function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === "class") node.className = v;
+      else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+      else node.setAttribute(k, v);
+    }
+    for (const c of children.flat()) if (c != null) node.append(c instanceof Node ? c : String(c));
+    return node;
+  }
+
+  async function api(path) {
+    const response = await fetch(location.pathname.replace(/\/$/, "") + "/api/" + path, { headers: { "X-Admin-Token": token } });
+    if (response.status === 401) { showLogin("Token inválido."); throw new Error("401"); }
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    return response.json();
+  }
+
+  function showLogin(error) {
+    token = ""; storage.set("");
+    $("app").hidden = true; $("login").hidden = false;
+    $("login-error").textContent = error || "";
+    $("token").focus();
+  }
+
+  $("login-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    token = $("token").value.trim();
+    if (!token) return;
+    storage.set(token);
+    start();
+  });
+  $("logout").addEventListener("click", () => showLogin());
+  $("refresh").addEventListener("click", () => refresh());
+  $("period").addEventListener("change", () => loadSummary());
+  $("issue-source").addEventListener("change", () => loadIssues());
+  $("issue-hours").addEventListener("change", () => loadIssues());
+  $("events-close").addEventListener("click", () => { $("events-section").hidden = true; selectedIssue = null; loadIssues(); });
+
+  function duration(ms) {
+    const s = Math.floor(ms / 1000), d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+    return d ? `${d}d ${h}h` : h ? `${h}h ${m}min` : `${m}min`;
+  }
+  function ago(iso) {
+    const ms = Date.now() - new Date(iso).getTime();
+    return ms < 60000 ? "agora" : "há " + duration(ms);
+  }
+
+  function tile(label, value, sub, status) {
+    const v = el("div", { class: "value" }, value);
+    return el("div", { class: "tile" },
+      el("div", { class: "label" }, label), v,
+      sub != null ? el("div", { class: "sub" + (status ? " status " + status : "") }, sub) : null);
+  }
+
+  async function loadSummary() {
+    const hours = Number($("period").value);
+    const s = await api("summary?hours=" + hours);
+    const t = s.requests.total;
+    $("meta").textContent = `API ${s.version} · no ar há ${duration(new Date(s.nowUtc) - new Date(s.startedAtUtc))} · atualizado ${timeFmt.format(new Date())}`;
+    const rate = t.requests ? t.serverErrors / t.requests : 0;
+    const rateStatus = t.serverErrors === 0 ? "ok" : rate > 0.01 ? "bad" : "warn";
+    $("tiles").replaceChildren(
+      tile("Requisições", nf.format(t.requests), `${nf.format(t.clientErrors)} com 4xx`),
+      tile("Erros 5xx", nf.format(t.serverErrors), t.requests ? (rate * 100).toFixed(2) + "% das requisições" : "sem requisições", rateStatus),
+      tile("Latência p95", t.p95Ms + " ms", `p50 ${t.p50Ms} ms · máx. ${t.maxMs} ms`),
+      tile("Conectados agora", nf.format(s.connections.hub), `${nf.format(s.connections.media)} na mídia`),
+      tile("Erros do app", nf.format(s.errors.app), "no período", s.errors.app ? "warn" : "ok"),
+      tile("Erros da API", nf.format(s.errors.api), "no período", s.errors.api ? "bad" : "ok"),
+    );
+
+    const points = fillTimeline(s.requests.timeline, hours, new Date(s.nowUtc));
+    barChart($("chart-requests"), points, "requests", "var(--series)", "requisições");
+    barChart($("chart-errors"), points, "serverErrors", "var(--critical)", "erros 5xx");
+
+    $("routes").replaceChildren(...(s.requests.routes.length ? s.requests.routes.map(r => el("tr", {},
+      el("td", {}, el("code", {}, r.route)),
+      el("td", { class: "num" }, nf.format(r.requests)),
+      el("td", { class: "num" }, nf.format(r.clientErrors)),
+      el("td", { class: "num" }, r.serverErrors ? el("span", { class: "status bad" }, nf.format(r.serverErrors)) : "0"),
+      el("td", { class: "num" }, r.avgMs + " ms"),
+      el("td", { class: "num" }, r.p50Ms + " ms"),
+      el("td", { class: "num" }, r.p95Ms + " ms"),
+      el("td", { class: "num" }, r.maxMs + " ms"))) : [el("tr", {}, el("td", { colspan: "8", class: "empty" }, "Nenhuma requisição no período."))]));
+  }
+
+  // Minutos sem requisição não vêm da API; em 6 e 24 horas, junta em faixas para caber na largura.
+  function fillTimeline(timeline, hours, now) {
+    const step = hours <= 1 ? 1 : hours <= 6 ? 5 : 15;
+    const byMinute = new Map(timeline.map(p => [Math.floor(new Date(p.minuteUtc).getTime() / 60000), p]));
+    const end = Math.floor(now.getTime() / 60000);
+    const start = end - hours * 60 + 1;
+    const out = [];
+    for (let m = start - ((start % step) + step) % step; m <= end; m += step) {
+      const p = { t: new Date(m * 60000), step, requests: 0, serverErrors: 0 };
+      for (let i = 0; i < step; i++) {
+        const q = byMinute.get(m + i);
+        if (q) { p.requests += q.requests; p.serverErrors += q.serverErrors; }
+      }
+      out.push(p);
+    }
+    return out;
+  }
+
+  function barChart(svg, points, key, color, unit) {
+    const W = svg.clientWidth || 600, H = 140, left = 36, bottom = 18, top = 8;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    const max = Math.max(1, ...points.map(p => p[key]));
+    const nice = niceMax(max);
+    const plotW = W - left - 4, plotH = H - top - bottom;
+    const bw = plotW / points.length;
+    const ns = "http://www.w3.org/2000/svg";
+    const make = (tag, attrs) => { const n = document.createElementNS(ns, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; };
+    const nodes = [];
+    for (const f of [0, 0.5, 1]) {
+      const y = top + plotH - plotH * f;
+      nodes.push(make("line", { class: "grid", x1: left, x2: W - 4, y1: y, y2: y }));
+      const label = make("text", { class: "axis", x: left - 6, y: y + 3, "text-anchor": "end" });
+      label.textContent = nf.format(Math.round(nice * f));
+      nodes.push(label);
+    }
+    points.forEach((p, i) => {
+      const x = left + i * bw;
+      const h = p[key] ? Math.max(2, plotH * p[key] / nice) : 0;
+      const gap = bw > 4 ? 1 : 0;
+      if (h) nodes.push(make("rect", { x: x + gap, y: top + plotH - h, width: Math.max(1, bw - gap * 2), height: h, rx: Math.min(2, bw / 4), fill: color }));
+      // Área de hover maior que a barra.
+      const hit = make("rect", { x, y: top, width: bw, height: plotH, fill: "transparent" });
+      hit.addEventListener("mousemove", (e) => tooltip(e, `${timeFmt.format(p.t)}${p.step > 1 ? " (+" + p.step + " min)" : ""}: ${nf.format(p[key])} ${unit}`));
+      hit.addEventListener("mouseleave", () => tooltip(null));
+      nodes.push(hit);
+    });
+    const ticks = 4;
+    for (let i = 0; i <= ticks; i++) {
+      const idx = Math.min(points.length - 1, Math.round((points.length - 1) * i / ticks));
+      const label = make("text", { class: "axis", x: left + idx * bw + bw / 2, y: H - 4, "text-anchor": i === 0 ? "start" : i === ticks ? "end" : "middle" });
+      label.textContent = timeFmt.format(points[idx].t);
+      nodes.push(label);
+    }
+    svg.replaceChildren(...nodes);
+  }
+
+  function niceMax(v) {
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    return [1, 2, 5, 10].map(m => m * p).find(n => n >= v);
+  }
+
+  function tooltip(e, text) {
+    const tip = $("tooltip");
+    if (!e) { tip.style.display = "none"; return; }
+    tip.textContent = text;
+    tip.style.display = "block";
+    tip.style.left = Math.min(e.clientX + 12, window.innerWidth - tip.offsetWidth - 8) + "px";
+    tip.style.top = (e.clientY - 34) + "px";
+  }
+
+  async function loadIssues() {
+    const params = new URLSearchParams({ hours: $("issue-hours").value });
+    if ($("issue-source").value) params.set("source", $("issue-source").value);
+    const issues = await api("issues?" + params);
+    $("issues").replaceChildren(...(issues.length ? issues.map(i => el("tr", {
+        class: "clickable" + (i.fingerprint === selectedIssue ? " selected" : ""),
+        onclick: () => { selectedIssue = i.fingerprint; loadEvents({ fingerprint: i.fingerprint }, i.message); loadIssues(); },
+      },
+      el("td", {}, el("span", { class: "tag" }, i.source === "app" ? "app" : "API")),
+      el("td", { class: "msg" }, el("div", {}, i.message), el("div", { class: "muted" }, `${i.level} · ${i.category}`)),
+      el("td", { class: "num" }, nf.format(i.count)),
+      el("td", { class: "num" }, nf.format(i.affected)),
+      el("td", {}, i.versions.join(", ") || "—"),
+      el("td", { title: dateFmt.format(new Date(i.lastSeenUtc)) }, ago(i.lastSeenUtc)))) :
+      [el("tr", {}, el("td", { colspan: "6", class: "empty" }, "Nenhum erro no período."))]));
+  }
+
+  async function loadEvents(filter, title) {
+    const params = new URLSearchParams({ ...filter, limit: "50" });
+    const events = await api("events?" + params);
+    $("events-title").textContent = filter.traceId ? "Trace " + filter.traceId : title;
+    $("events").replaceChildren(...(events.length ? events.map(ev => el("div", { class: "event" },
+      el("div", { class: "head" },
+        el("span", { class: "tag" }, ev.source === "app" ? "app" : "API"),
+        el("strong", {}, dateFmt.format(new Date(ev.occurredAtUtc))),
+        el("span", { class: "muted" }, [ev.level, ev.category, ev.appVersion && "v" + ev.appVersion, ev.os, ev.environment].filter(Boolean).join(" · ")),
+        ev.traceId ? el("a", { class: "trace", title: "Tudo deste trace (app e API)", onclick: () => loadEvents({ traceId: ev.traceId }) }, ev.traceId) : null),
+      el("div", { class: "msg" }, ev.message),
+      ev.request ? el("div", { class: "muted" }, ev.request) : null,
+      ev.installId ? el("div", { class: "muted" }, `instalação ${ev.installId.slice(0, 8)} · execução ${(ev.runId || "").slice(0, 8)}`) : null,
+      ev.userId ? el("div", { class: "muted" }, `usuário ${ev.userId}`) : null,
+      ev.exception ? el("pre", {}, ev.exception) : null)) : [el("div", { class: "empty" }, "Nenhuma ocorrência.")]));
+    $("events-section").hidden = false;
+    $("events-section").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function refresh() {
+    try { await Promise.all([loadSummary(), loadIssues()]); }
+    catch (e) { if (e.message !== "401") $("meta").textContent = "Falha ao carregar: " + e.message; }
+  }
+
+  let timer;
+  async function start() {
+    $("login").hidden = true; $("app").hidden = false;
+    await refresh();
+    clearInterval(timer);
+    timer = setInterval(() => { if (!document.hidden && token) refresh(); }, 30000);
+  }
+  window.addEventListener("resize", () => token && loadSummary().catch(() => {}));
+
+  token ? start() : showLogin();
+})();
+</script>
+</body>
+</html>
