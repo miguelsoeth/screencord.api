@@ -1,0 +1,29 @@
+# Atualizações automáticas de dependências. Os PRs passam pelo CI e pelo ruleset da main como qualquer outro.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # Os pacotes do .NET sobem de versão juntos.
+      dotnet:
+        patterns: ["Microsoft.*", "System.*"]
+    ignore:
+      # Versão maior do .NET exige trocar o TargetFramework; é uma mudança planejada, não automática.
+      - dependency-name: "Microsoft.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "System.*"
+        update-types: ["version-update:semver-major"]
+
+  # Também atualiza o SHA das actions fixadas (docker/*) e o comentário com a versão.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
