@@ -105,6 +105,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<ErrorEvent> ErrorEvents => Set<ErrorEvent>();
 
+    public DbSet<UserActivity> UserActivities => Set<UserActivity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>(user =>
@@ -167,6 +169,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             error.Property(e => e.Device).HasMaxLength(ErrorEvent.MaxDetailsLength + 1);
             error.Property(e => e.Context).HasMaxLength(ErrorEvent.MaxDetailsLength + 1);
             error.Property(e => e.Breadcrumbs).HasMaxLength(ErrorEvent.MaxBreadcrumbsLength + 1);
+        });
+
+        // Também sem chave estrangeira: apagar a conta não muda quantos estavam ativos naquele dia.
+        modelBuilder.Entity<UserActivity>(activity =>
+        {
+            activity.HasKey(a => new { a.UserId, a.Day });
+            activity.HasIndex(a => a.Day);
         });
     }
 

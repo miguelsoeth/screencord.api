@@ -196,6 +196,56 @@ public sealed class ObservabilityTests : IDisposable
     }
 
     [Fact]
+    public async Task UsuariosAtivos_ContaCadaContaUmaVezPorDia()
+    {
+        var (ana, anaUser) = await _factory.LoginAsync("token-ana");
+        var (bruno, _) = await _factory.LoginAsync("token-bruno");
+        await ana.GetAsync("/friends");
+        await ana.GetAsync("/groups");
+        await bruno.GetAsync("/friends");
+        await _factory.CreateClient().GetAsync("/limits");
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.Equal(1, db.UserActivities.Count(a => a.UserId == anaUser.Id && a.Day == today));
+            db.UserActivities.Add(new UserActivity { UserId = anaUser.Id, Day = today.AddDays(-3) });
+            db.UserActivities.Add(new UserActivity { UserId = Guid.NewGuid(), Day = today.AddDays(-10) });
+            await db.SaveChangesAsync();
+        }
+
+        var active = (await Admin().GetFromJsonAsync<JsonElement>("/admin/api/summary")).GetProperty("activeUsers");
+
+        Assert.Equal(2, active.GetProperty("today").GetInt32());
+        Assert.Equal(2, active.GetProperty("last7Days").GetInt32());
+        Assert.Equal(3, active.GetProperty("last30Days").GetInt32());
+        Assert.Equal(2, active.GetProperty("accounts").GetInt32());
+        var daily = active.GetProperty("daily").EnumerateArray().ToList();
+        Assert.Equal(3, daily.Count);
+        Assert.Equal(today.ToString("yyyy-MM-dd"), daily[^1].GetProperty("day").GetString());
+        Assert.Equal(2, daily[^1].GetProperty("users").GetInt32());
+    }
+
+    [Fact]
+    public async Task Limpeza_ApagaOsDiasDeUsoAntigos()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        var user = Guid.NewGuid();
+        db.UserActivities.AddRange(
+            new UserActivity { UserId = user, Day = today.AddDays(-ActiveUsers.RetentionDays - 1) },
+            new UserActivity { UserId = user, Day = today.AddDays(-ActiveUsers.RetentionDays) });
+        await db.SaveChangesAsync();
+
+        await ErrorSink.CleanupAsync(db, new ObservabilityOptions(), now, CancellationToken.None);
+
+        Assert.Equal([today.AddDays(-ActiveUsers.RetentionDays)], db.UserActivities.Select(a => a.Day).ToList());
+    }
+
+    [Fact]
     public void Fingerprint_IgnoraLinhaDoArquivoENumerosDaMensagem()
     {
         var a = ErrorFingerprint.Compute("app", "c", "x", "System.Exception: a\n   at A.B() in C:\\a.cs:line 10\n   at A.C()");

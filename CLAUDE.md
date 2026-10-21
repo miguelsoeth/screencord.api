@@ -94,7 +94,7 @@ Restaurar um backup: `docker compose stop api`, apague `data/screencord.db-wal` 
 - O esquema do banco é criado por `DatabaseSchema.Ensure` (`EnsureCreated` + criação das tabelas e índices que faltam). Isso só cobre mudanças **aditivas**. Alterar ou remover colunas exige adotar EF Core Migrations antes; não faça isso sem planejar a migração dos dados de produção.
 - A presença dos grupos fica em memória: a API roda com uma instância só. Todo deploy derruba as conexões SignalR e de mídia por alguns segundos; o app reconecta.
 - O app recusa `http` fora de localhost; a URL de produção do app é `https://api.screencord.miguelsoeth.online`.
-- Observabilidade (`Observability/`): métricas em memória, erros da API e do app na tabela `ErrorEvents` e o painel `/admin` (HTML em `dashboard.html`, recurso embutido). Os dados do painel vêm de relatórios anônimos: no HTML, tudo entra como texto (`textContent`), nunca como HTML. O `ErrorLogProvider` ignora as categorias do EF Core e de `Observability`, senão uma falha ao gravar vira um ciclo.
+- Observabilidade (`Observability/`): métricas em memória, erros da API e do app na tabela `ErrorEvents`, usuários ativos por dia em `UserActivities` (`ActiveUsers`, uma linha por conta e dia, gravada na primeira requisição autenticada do dia) e o painel `/admin` (HTML em `dashboard.html`, recurso embutido). Os dados do painel vêm de relatórios anônimos: no HTML, tudo entra como texto (`textContent`), nunca como HTML. O `ErrorLogProvider` ignora as categorias do EF Core e de `Observability`, senão uma falha ao gravar vira um ciclo.
 
 ## Licença
 

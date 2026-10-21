@@ -26,6 +26,7 @@ public static class ObservabilitySetup
     {
         services.Configure<ObservabilityOptions>(configuration.GetSection(ObservabilityOptions.SectionName));
         services.AddSingleton<RequestMetrics>();
+        services.AddSingleton<ActiveUsers>();
         services.AddSingleton<ErrorSink>();
         services.AddHostedService(sp => sp.GetRequiredService<ErrorSink>());
         services.AddSingleton<ILoggerProvider, ErrorLogProvider>();

@@ -20,7 +20,8 @@ public sealed class ObservabilityOptions
 }
 
 /// <summary>
-/// Grava em segundo plano os erros da própria API (vindos do log) e apaga os antigos. A fila é limitada:
+/// Grava em segundo plano os erros da própria API (vindos do log) e apaga os antigos (e os dias de uso antigos
+/// de <see cref="ActiveUsers"/>). A fila é limitada:
 /// numa avalanche de erros, os excedentes são descartados em vez de segurar memória.
 /// </summary>
 public sealed class ErrorSink(IServiceScopeFactory scopes, IOptions<ObservabilityOptions> options, TimeProvider time) : BackgroundService
@@ -99,5 +100,7 @@ public sealed class ErrorSink(IServiceScopeFactory scopes, IOptions<Observabilit
         {
             await db.ErrorEvents.Where(e => e.OccurredAtUtc <= limit).ExecuteDeleteAsync(cancellationToken);
         }
+
+        await ActiveUsers.CleanupAsync(db, now, cancellationToken);
     }
 }

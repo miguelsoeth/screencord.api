@@ -145,7 +145,7 @@ public static class ObservabilityEndpoints
         return text.Length == 0 ? null : text.Length <= ErrorEvent.MaxBreadcrumbsLength ? text : text[^ErrorEvent.MaxBreadcrumbsLength..];
     }
 
-    private static async Task<IResult> SummaryAsync(int? hours, RequestMetrics metrics, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
+    private static async Task<IResult> SummaryAsync(int? hours, RequestMetrics metrics, ActiveUsers activeUsers, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
         var period = TimeSpan.FromHours(Math.Clamp(hours ?? 1, 1, 24));
         var now = time.GetUtcNow();
@@ -159,6 +159,7 @@ public static class ObservabilityEndpoints
             startedAtUtc = metrics.StartedAtUtc,
             nowUtc = now,
             connections = new { hub = metrics.ActiveHubConnections, media = metrics.ActiveMediaConnections },
+            activeUsers = await activeUsers.SummaryAsync(db, cancellationToken),
             errors = new
             {
                 app = errors.FirstOrDefault(e => e.Source == ErrorEvent.FromApp)?.Count ?? 0,

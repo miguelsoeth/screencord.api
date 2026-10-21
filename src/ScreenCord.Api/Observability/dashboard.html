@@ -93,6 +93,12 @@
     <div class="tiles" id="tiles"></div>
 
     <section>
+      <h2>Usuários ativos por dia <span class="muted" style="font-weight:400;font-size:12px">contas que usaram a API no dia (UTC), últimos 30 dias</span></h2>
+      <div class="tiles" id="active-tiles"></div>
+      <div class="chart" style="margin-top:12px"><svg id="chart-active" role="img" aria-label="Usuários ativos por dia"></svg></div>
+    </section>
+
+    <section>
       <h2>Requisições por minuto</h2>
       <div class="charts">
         <div class="chart"><h3>Requisições</h3><svg id="chart-requests" role="img" aria-label="Requisições por minuto"></svg></div>
@@ -141,6 +147,7 @@
   let selectedIssue = null;
   const nf = new Intl.NumberFormat("pt-BR");
   const timeFmt = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const dayFmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
   const dateFmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
   // Os dados vêm de relatórios anônimos do aplicativo: tudo entra como texto, nunca como HTML.
@@ -219,6 +226,15 @@
     barChart($("chart-requests"), points, "requests", "var(--series)", "requisições");
     barChart($("chart-errors"), points, "serverErrors", "var(--critical)", "erros 5xx");
 
+    const a = s.activeUsers;
+    const ofAccounts = `de ${nf.format(a.accounts)} contas`;
+    $("active-tiles").replaceChildren(
+      tile("Hoje", nf.format(a.today), ofAccounts),
+      tile("Últimos 7 dias", nf.format(a.last7Days), ofAccounts),
+      tile("Últimos 30 dias", nf.format(a.last30Days), ofAccounts),
+    );
+    barChart($("chart-active"), fillDays(a.daily, 30, new Date(s.nowUtc)), "users", "var(--series)", "usuários", dayFmt);
+
     $("routes").replaceChildren(...(s.requests.routes.length ? s.requests.routes.map(r => el("tr", {},
       el("td", {}, el("code", {}, r.route)),
       el("td", { class: "num" }, nf.format(r.requests)),
@@ -248,7 +264,19 @@
     return out;
   }
 
-  function barChart(svg, points, key, color, unit) {
+  // Dias sem ninguém não vêm da API.
+  function fillDays(daily, days, now) {
+    const byDay = new Map(daily.map(d => [d.day, d.users]));
+    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const out = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const t = new Date(today - i * 86400000);
+      out.push({ t, users: byDay.get(t.toISOString().slice(0, 10)) || 0 });
+    }
+    return out;
+  }
+
+  function barChart(svg, points, key, color, unit, fmt = timeFmt) {
     const W = svg.clientWidth || 600, H = 140, left = 36, bottom = 18, top = 8;
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     const max = Math.max(1, ...points.map(p => p[key]));
@@ -272,7 +300,7 @@
       if (h) nodes.push(make("rect", { x: x + gap, y: top + plotH - h, width: Math.max(1, bw - gap * 2), height: h, rx: Math.min(2, bw / 4), fill: color }));
       // Área de hover maior que a barra.
       const hit = make("rect", { x, y: top, width: bw, height: plotH, fill: "transparent" });
-      hit.addEventListener("mousemove", (e) => tooltip(e, `${timeFmt.format(p.t)}${p.step > 1 ? " (+" + p.step + " min)" : ""}: ${nf.format(p[key])} ${unit}`));
+      hit.addEventListener("mousemove", (e) => tooltip(e, `${fmt.format(p.t)}${p.step > 1 ? " (+" + p.step + " min)" : ""}: ${nf.format(p[key])} ${unit}`));
       hit.addEventListener("mouseleave", () => tooltip(null));
       nodes.push(hit);
     });
@@ -280,7 +308,7 @@
     for (let i = 0; i <= ticks; i++) {
       const idx = Math.min(points.length - 1, Math.round((points.length - 1) * i / ticks));
       const label = make("text", { class: "axis", x: left + idx * bw + bw / 2, y: H - 4, "text-anchor": i === 0 ? "start" : i === ticks ? "end" : "middle" });
-      label.textContent = timeFmt.format(points[idx].t);
+      label.textContent = fmt.format(points[idx].t);
       nodes.push(label);
     }
     svg.replaceChildren(...nodes);

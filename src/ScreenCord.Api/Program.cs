@@ -111,6 +111,7 @@ app.UseClientVersionGate(minClientVersion);
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
 
 app.UseAuthentication();
+app.UseActiveUsers();
 app.UseRateLimiter();
 app.UseAuthorization();
 
