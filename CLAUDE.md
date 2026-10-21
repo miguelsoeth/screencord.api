@@ -67,9 +67,8 @@ Não crie tags para testar o pipeline: cada tag gera release, imagem e deploy em
 
 ## Produção (VPS)
 
-- Host: `154.16.50.20` (EliteHost, Ubuntu 26.04, 2 vCPU, 4 GB). Sem domínio: o HTTPS usa certificado da Let's Encrypt **para o IP**, no perfil `shortlived` (~6 dias), renovado pelo Caddy. URL pública: `https://154.16.50.20`.
-- Acesso SSH somente por chave. Usuário `deploy` (no grupo `docker`) para operar a aplicação; `root` só para administração do sistema. A chave do Miguel (`~/.ssh/elitehost_ed25519`, no PC Windows) entra nos dois: `ssh -i ~/.ssh/elitehost_ed25519 deploy@154.16.50.20`. O `deploy` também aceita a chave do GitHub Actions (a privada só existe no secret `DEPLOY_SSH_KEY`; para trocar, gere outra, atualize `/home/deploy/.ssh/authorized_keys` e o secret). A senha de root que o painel da EliteHost mostra não funciona por SSH. Login por senha desativado em `/etc/ssh/sshd_config.d/00-0-screencord.conf` (precisa ser lido antes do `00-elitehost.conf` do provedor, que libera senha).
-- Firewall `ufw`: só 22, 80 e 443 (tcp e udp). `fail2ban` e `unattended-upgrades` ativos.
+- Host: `154.16.50.20` (VPS Ubuntu). Sem domínio: o HTTPS usa certificado da Let's Encrypt **para o IP**, no perfil `shortlived` (~6 dias), renovado pelo Caddy. URL pública: `https://154.16.50.20`.
+- Acesso ao servidor (SSH, usuários, chaves, firewall e endurecimento): no `CLAUDE.local.md`, fora do git. Este repositório é público: não documente aqui como entrar no servidor.
 - Diretório `/srv/screencord` (dono `deploy`):
   - `compose.yml`, `Caddyfile`, `deploy.sh`, `backup.sh`: copiados do repo a cada deploy (edite no repo, não no servidor).
   - `.env`: `PUBLIC_IP` e `API_VERSION` (a versão atual; o `deploy.sh` reescreve).
