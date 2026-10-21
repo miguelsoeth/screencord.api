@@ -41,6 +41,8 @@ fi
 set_version "$VERSION"
 docker compose pull api
 docker compose up -d
+# O Caddyfile chega pelo scp sem recriar o container: recarrega para valer a versão nova.
+docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
 if wait_healthy "$VERSION"; then
     echo "v$VERSION no ar."

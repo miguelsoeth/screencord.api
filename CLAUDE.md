@@ -67,12 +67,12 @@ Não crie tags para testar o pipeline: cada tag gera release, imagem e deploy em
 
 ## Produção (VPS)
 
-- Host: `154.16.50.20` (VPS Ubuntu). Sem domínio: o HTTPS usa certificado da Let's Encrypt **para o IP**, no perfil `shortlived` (~6 dias), renovado pelo Caddy. URL pública: `https://154.16.50.20`.
+- Host: `154.16.50.20` (VPS Ubuntu). URL pública: `https://api.screencord.miguelsoeth.online` (registro A na GoDaddy, DNS sem proxy: o relay de vídeo por WebSocket não deve passar por CDN). O Caddy emite e renova o certificado da Let's Encrypt para o domínio. Pelo IP não há HTTPS válido; o IP só serve para o SSH (`DEPLOY_HOST`).
 - Acesso ao servidor (SSH, usuários, chaves, firewall e endurecimento): no `CLAUDE.local.md`, fora do git. Este repositório é público: não documente aqui como entrar no servidor.
 - Diretório `/srv/screencord` (dono `deploy`):
-  - `compose.yml`, `Caddyfile`, `deploy.sh`, `backup.sh`: copiados do repo a cada deploy (edite no repo, não no servidor).
-  - `.env`: `PUBLIC_IP` e `API_VERSION` (a versão atual; o `deploy.sh` reescreve).
-  - `api.env`: configuração da API no formato `Secao__Chave=valor` (ex.: `Discord__ClientId`). Não está no git. Ao adicionar uma configuração nova à API, documente aqui e adicione no servidor antes do deploy. Opcional: `RelayLimits__MaxHeight`, `RelayLimits__MaxFrameRate` e `RelayLimits__MaxBitrateKbps` mudam a qualidade máxima pelo servidor (padrão 720, 30 e 2500; o app lê de `GET /limits`). A banda de saída é a taxa vezes o número de espectadores: a franquia do VPS é de 5 TB/mês e, ao estourar, a porta cai para 10 Mbps. `Observability__DashboardToken` liga o painel em `https://154.16.50.20/admin` (gere com `openssl rand -hex 32`; sem ele o painel não existe); opcionais `Observability__RetentionDays` e `Observability__MaxEvents`.
+  - `compose.yml`, `Caddyfile`, `deploy.sh`, `backup.sh`: copiados do repo a cada deploy (edite no repo, não no servidor). O `deploy.sh` recarrega o Caddy, então mudar só o `Caddyfile` basta rodar o workflow Deploy com a versão atual.
+  - `.env`: `API_VERSION` (a versão atual; o `deploy.sh` reescreve).
+  - `api.env`: configuração da API no formato `Secao__Chave=valor` (ex.: `Discord__ClientId`). Não está no git. Ao adicionar uma configuração nova à API, documente aqui e adicione no servidor antes do deploy. Opcional: `RelayLimits__MaxHeight`, `RelayLimits__MaxFrameRate` e `RelayLimits__MaxBitrateKbps` mudam a qualidade máxima pelo servidor (padrão 720, 30 e 2500; o app lê de `GET /limits`). A banda de saída é a taxa vezes o número de espectadores: a franquia do VPS é de 5 TB/mês e, ao estourar, a porta cai para 10 Mbps. `Observability__DashboardToken` liga o painel em `https://api.screencord.miguelsoeth.online/admin` (gere com `openssl rand -hex 32`; sem ele o painel não existe); opcionais `Observability__RetentionDays` e `Observability__MaxEvents`.
   - `data/screencord.db`: banco SQLite em modo WAL. A pasta e o banco são do `deploy` (uid 1000), e o container da API roda com esse uid (`user: "1000:1000"` no `compose.yml`). Não mude o dono: o backup, que roda como `deploy`, precisa escrever o `-shm`.
   - `backups/`: backup diário às 03:15 (cron do `deploy`, guarda 7 dias) e um backup antes de cada deploy (guarda os 10 últimos).
 - Containers: `api` (porta 8080 publicada só em `127.0.0.1`, para o health check) e `caddy` (80/443, proxy reverso com WebSocket). A API confia em `X-Forwarded-For` porque `Proxy__TrustForwardedHeaders=true` está no `compose.yml`; isso só é seguro porque a porta da API não está exposta.
@@ -89,17 +89,11 @@ curl -s http://127.0.0.1:8080/health
 
 Restaurar um backup: `docker compose stop api`, apague `data/screencord.db-wal` e `data/screencord.db-shm`, copie o arquivo de `backups/` para `data/screencord.db` (como `deploy`) e `docker compose start api`.
 
-## Quando houver domínio
-
-1. Crie um registro A apontando para `154.16.50.20`.
-2. No `deploy/Caddyfile`, troque `{$PUBLIC_IP}` pelo domínio e remova `default_sni` e o bloco `cert_issuer`.
-3. Faça uma release (PATCH) e atualize o `Api:BaseUrl` do app.
-
 ## Cuidados
 
 - O esquema do banco é criado por `DatabaseSchema.Ensure` (`EnsureCreated` + criação das tabelas e índices que faltam). Isso só cobre mudanças **aditivas**. Alterar ou remover colunas exige adotar EF Core Migrations antes; não faça isso sem planejar a migração dos dados de produção.
 - A presença dos grupos fica em memória: a API roda com uma instância só. Todo deploy derruba as conexões SignalR e de mídia por alguns segundos; o app reconecta.
-- O app recusa `http` fora de localhost; a URL de produção do app é `https://154.16.50.20`.
+- O app recusa `http` fora de localhost; a URL de produção do app é `https://api.screencord.miguelsoeth.online`.
 - Observabilidade (`Observability/`): métricas em memória, erros da API e do app na tabela `ErrorEvents` e o painel `/admin` (HTML em `dashboard.html`, recurso embutido). Os dados do painel vêm de relatórios anônimos: no HTML, tudo entra como texto (`textContent`), nunca como HTML. O `ErrorLogProvider` ignora as categorias do EF Core e de `Observability`, senão uma falha ao gravar vira um ciclo.
 
 ## Licença
