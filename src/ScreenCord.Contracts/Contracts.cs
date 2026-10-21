@@ -277,3 +277,38 @@ public static class ClientVersionContract
     /// <summary>Página pública de download do aplicativo.</summary>
     public const string DownloadPage = "https://miguelsoeth.github.io/screencord/";
 }
+
+/// <summary>
+/// Relatório de erros do aplicativo (<see cref="TelemetryContract.ErrorsPath"/>). Não leva tokens nem dados
+/// de conta: <see cref="InstallId"/> é um id aleatório da instalação e <see cref="RunId"/>, desta execução.
+/// </summary>
+public sealed record ClientErrorReport(
+    string AppVersion,
+    string? Os,
+    string? Environment,
+    Guid InstallId,
+    Guid RunId,
+    IReadOnlyList<ClientLogEntry> Entries);
+
+/// <param name="Level">Nível do log (<c>Warning</c>, <c>Error</c>, <c>Critical</c>).</param>
+/// <param name="Exception">Tipo, mensagem e pilha da exceção, quando houver.</param>
+/// <param name="TraceId">Trace W3C da requisição à API que falhou (o mesmo que a API registra), quando houver.</param>
+public sealed record ClientLogEntry(
+    DateTimeOffset TimestampUtc,
+    string Level,
+    string Category,
+    string Message,
+    string? Exception = null,
+    string? TraceId = null);
+
+public static class TelemetryContract
+{
+    /// <summary><c>POST</c> com <see cref="ClientErrorReport"/>; aceita sem login (inclusive no "Usar sem conta").</summary>
+    public const string ErrorsPath = "/telemetry/errors";
+
+    /// <summary>Entradas por relatório; o resto é descartado.</summary>
+    public const int MaxEntries = 50;
+
+    /// <summary>Cabeçalho de resposta da API com o trace da requisição (o mesmo do <c>traceparent</c> enviado).</summary>
+    public const string TraceIdHeader = "X-Trace-Id";
+}

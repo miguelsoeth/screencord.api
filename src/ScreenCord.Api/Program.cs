@@ -5,6 +5,7 @@ using ScreenCord.Api;
 using ScreenCord.Api.Auth;
 using ScreenCord.Api.Data;
 using ScreenCord.Api.Endpoints;
+using ScreenCord.Api.Observability;
 using ScreenCord.Api.Realtime;
 using ScreenCord.Api.Versioning;
 using ScreenCord.Contracts;
@@ -38,6 +39,9 @@ builder.Services
 builder.Services.AddAuthorization();
 builder.Services.AddScreenCordOpenApi();
 
+// Métricas das requisições, erros da API e do aplicativo e o painel em /admin.
+builder.Services.AddScreenCordObservability(builder.Configuration);
+
 // Conexões persistentes para a presença nos grupos. O rastreador fica em memória (uma instância da API).
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<GroupPresence>();
@@ -60,6 +64,8 @@ builder.Services.AddRateLimiter(options =>
         RateLimitPartition.GetFixedWindowLimiter(
             ClientIp(context),
             _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+
+    options.AddTelemetryRateLimit(ClientIp);
 });
 
 // Em produção a API fica atrás do Caddy, que é o único a falar com ela (a porta não é publicada).
@@ -97,6 +103,8 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.MapScreenCordOpenApi();
+// Antes da versão mínima, para medir também as requisições recusadas por ela.
+app.UseRequestMetrics();
 app.UseClientVersionGate(minClientVersion);
 
 // Canal de mídia do compartilhamento de tela. O ping mantém a conexão viva atrás de proxies.
@@ -113,6 +121,7 @@ app.MapGroupEndpoints();
 app.MapLimitsEndpoints();
 app.MapHub<GroupsHub>(GroupsHubContract.Path).RequireAuthorization();
 app.MapMediaEndpoints();
+app.MapObservabilityEndpoints();
 
 app.Run();
 

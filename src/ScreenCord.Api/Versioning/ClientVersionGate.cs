@@ -26,8 +26,9 @@ public static class ClientVersionGate
 
     private static readonly object VersionKey = new();
 
-    // Rotas que não são usadas pelo aplicativo (infra e documentação).
-    private static readonly string[] ExemptPrefixes = ["/health", "/swagger", "/openapi"];
+    // Rotas que não são usadas pelo aplicativo (infra, documentação e painel). Os relatórios de erro também
+    // passam: mesmo uma versão recusada pode contar por que falhou.
+    private static readonly string[] ExemptPrefixes = ["/health", "/swagger", "/openapi", "/admin", "/telemetry"];
 
     /// <summary>Versão do aplicativo da requisição; null para build de desenvolvimento (aceita sempre).</summary>
     public static Version? GetClientVersion(this HttpContext context) => context.Items[VersionKey] as Version;

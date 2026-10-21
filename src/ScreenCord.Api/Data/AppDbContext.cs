@@ -1,3 +1,4 @@
+using ScreenCord.Api.Observability;
 using Microsoft.EntityFrameworkCore;
 
 namespace ScreenCord.Api.Data;
@@ -102,6 +103,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
 
+    public DbSet<ErrorEvent> ErrorEvents => Set<ErrorEvent>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>(user =>
@@ -142,6 +145,25 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             member.HasIndex(m => m.UserId);
             member.HasOne<Group>().WithMany().HasForeignKey(m => m.GroupId).OnDelete(DeleteBehavior.Cascade);
             member.HasOne<User>().WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Sem chave estrangeira para User: o erro continua no painel mesmo se a conta for apagada.
+        modelBuilder.Entity<ErrorEvent>(error =>
+        {
+            error.HasIndex(e => e.OccurredAtUtc);
+            error.HasIndex(e => e.Fingerprint);
+            error.HasIndex(e => e.TraceId);
+            error.Property(e => e.Source).HasMaxLength(8);
+            error.Property(e => e.Level).HasMaxLength(16);
+            error.Property(e => e.Category).HasMaxLength(200);
+            error.Property(e => e.Message).HasMaxLength(ErrorEvent.MaxMessageLength + 1);
+            error.Property(e => e.Exception).HasMaxLength(ErrorEvent.MaxExceptionLength + 1);
+            error.Property(e => e.TraceId).HasMaxLength(32);
+            error.Property(e => e.Fingerprint).HasMaxLength(16);
+            error.Property(e => e.AppVersion).HasMaxLength(32);
+            error.Property(e => e.Os).HasMaxLength(100);
+            error.Property(e => e.Environment).HasMaxLength(32);
+            error.Property(e => e.Request).HasMaxLength(300);
         });
     }
 
