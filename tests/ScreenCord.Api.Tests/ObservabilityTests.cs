@@ -4,6 +4,8 @@ using System.Text.Json;
 using ScreenCord.Api.Data;
 using ScreenCord.Api.Observability;
 using ScreenCord.Contracts;
+using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -148,6 +150,43 @@ public sealed class ObservabilityTests : IDisposable
         var routes = summary.GetProperty("requests").GetProperty("routes").EnumerateArray().ToList();
         Assert.Equal(1, routes.Single(r => r.GetProperty("route").GetString() == "GET /limits").GetProperty("requests").GetInt32());
         Assert.Equal(1, routes.Single(r => r.GetProperty("route").GetString() == "GET /groups").GetProperty("clientErrors").GetInt32());
+    }
+
+    [Fact]
+    public async Task ConexaoNoHub_ContaEmConectadosAgora_EnquantoAberta()
+    {
+        // Kestrel de verdade: o TestServer põe o recurso de WebSocket na requisição antes do pipeline e esconderia
+        // um UseWebSockets fora de ordem.
+        using var factory = new ApiFactory(new Dictionary<string, string?> { ["Observability:DashboardToken"] = Token });
+        factory.UseKestrel(0);
+        factory.StartServer();
+        var (client, _) = await factory.LoginAsync("token-ana");
+        var admin = factory.CreateClient();
+        admin.DefaultRequestHeaders.Add(ObservabilityEndpoints.TokenHeader, Token);
+        async Task<int> HubConnectionsAsync() =>
+            (await admin.GetFromJsonAsync<JsonElement>("/admin/api/summary")).GetProperty("connections").GetProperty("hub").GetInt32();
+
+        var token = client.DefaultRequestHeaders.Authorization!.Parameter!;
+        await using var connection = new HubConnectionBuilder()
+            .WithUrl(new Uri(client.BaseAddress!, "hubs/groups"), options =>
+            {
+                options.Transports = HttpTransportType.WebSockets;
+                options.AccessTokenProvider = () => Task.FromResult<string?>(token);
+            })
+            .Build();
+        await connection.StartAsync();
+
+        Assert.Equal(1, await HubConnectionsAsync());
+
+        await connection.StopAsync();
+        var connections = -1;
+        for (var i = 0; i < 50 && connections != 0; i++)
+        {
+            await Task.Delay(100);
+            connections = await HubConnectionsAsync();
+        }
+
+        Assert.Equal(0, connections);
     }
 
     [Fact]
