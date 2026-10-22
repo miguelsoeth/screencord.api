@@ -275,7 +275,7 @@ public static class ClientVersionContract
     public const string OutdatedCode = "client_outdated";
 
     /// <summary>Página pública de download do aplicativo.</summary>
-    public const string DownloadPage = "https://miguelsoeth.github.io/screencord/";
+    public const string DownloadPage = "https://screencord.miguelsoeth.online/";
 }
 
 /// <summary>
