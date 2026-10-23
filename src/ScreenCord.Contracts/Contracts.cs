@@ -112,10 +112,13 @@ public static class ScreenShareLimits
 
     public static readonly int[] FrameRates = [30, 60];
 
-    /// <summary>Teto da taxa de bits pelo servidor. O aplicativo não deixa escolher: adapta a taxa à rede, até o teto.</summary>
-    public const int MaxBitrateKbps = 2500;
+    /// <summary>Teto padrão da taxa de bits pelo servidor. O aplicativo não deixa escolher: adapta a taxa à rede, até o teto.</summary>
+    public const int MaxBitrateKbps = 3000;
 
     public const int MinBitrateKbps = 300;
+
+    /// <summary>Maior teto de taxa de bits que a API pode informar em <see cref="StreamLimits"/>.</summary>
+    public const int MaxConfigurableBitrateKbps = 50_000;
 
     /// <summary>Janelas muito largas (ex.: monitores ultrawide) podem passar de 16:9.</summary>
     public const int MaxWidth = 3840;
@@ -138,16 +141,28 @@ public static class ScreenShareLimits
 /// (<see cref="Direct"/>) quem paga é o upload de quem compartilha.
 /// </summary>
 /// <param name="MaxHeight">Maior altura (a real pode ser menor, numa janela pequena).</param>
-public sealed record StreamLimits(int MaxHeight, int MaxFrameRate, int MaxBitrateKbps)
+/// <param name="Profiles">
+/// Combinações de resolução e fps aceitas (ex.: 720p a 60 fps e 1080p a 30 fps, mas não 1080p a 60 fps). Quem não
+/// as conhece (versões antigas do aplicativo) usa só o maior de cada, <paramref name="MaxHeight"/> e
+/// <paramref name="MaxFrameRate"/>; sem elas, vale esse par.
+/// </param>
+public sealed record StreamLimits(int MaxHeight, int MaxFrameRate, int MaxBitrateKbps, IReadOnlyList<StreamProfile>? Profiles = null)
 {
-    /// <summary>Pelo servidor: 720p a 30 fps, até 2,5 Mbps.</summary>
-    public static StreamLimits Relay { get; } = new(720, 30, ScreenShareLimits.MaxBitrateKbps);
+    /// <summary>Pelo servidor: 720p a 60 fps ou 1080p a 30 fps, até 3 Mbps. Ajustável no painel da API.</summary>
+    public static StreamLimits Relay { get; } = FromProfiles([new(720, 60), new(1080, 30)], ScreenShareLimits.MaxBitrateKbps);
 
     /// <summary>Direto entre os computadores (salas locais): até 1080p a 60 fps, até 5 Mbps.</summary>
     public static StreamLimits Direct { get; } = new(1080, 60, 5000);
 
+    public static StreamLimits FromProfiles(IReadOnlyList<StreamProfile> profiles, int maxBitrateKbps) =>
+        new(profiles.Max(p => p.Height), profiles.Max(p => p.FrameRate), maxBitrateKbps, profiles);
+
+    /// <summary>Cabe se alguma combinação aceita for igual ou maior nos dois (720p a 60 fps cobre 540p a 30 fps).</summary>
     public bool AllowsQuality(int height, int frameRate) =>
-        height <= MaxHeight && ScreenShareLimits.FrameRates.Contains(frameRate) && frameRate <= MaxFrameRate;
+        ScreenShareLimits.FrameRates.Contains(frameRate) &&
+        (Profiles is { Count: > 0 }
+            ? Profiles.Any(p => height <= p.Height && frameRate <= p.FrameRate)
+            : height <= MaxHeight && frameRate <= MaxFrameRate);
 
     public bool AllowsBitrate(int kbps) => kbps >= ScreenShareLimits.MinBitrateKbps && kbps <= MaxBitrateKbps;
 
@@ -155,8 +170,20 @@ public sealed record StreamLimits(int MaxHeight, int MaxFrameRate, int MaxBitrat
     public bool IsSane =>
         MaxHeight >= ScreenShareLimits.Heights.Min() && MaxHeight <= ScreenShareLimits.Heights.Max() &&
         ScreenShareLimits.FrameRates.Contains(MaxFrameRate) &&
-        MaxBitrateKbps >= ScreenShareLimits.MinBitrateKbps && MaxBitrateKbps <= 50_000;
+        MaxBitrateKbps >= ScreenShareLimits.MinBitrateKbps && MaxBitrateKbps <= ScreenShareLimits.MaxConfigurableBitrateKbps &&
+        (Profiles is null || Profiles is { Count: > 0 and <= 6 } && Profiles.All(p =>
+            ScreenShareLimits.Heights.Contains(p.Height) && ScreenShareLimits.FrameRates.Contains(p.FrameRate)));
+
+    // A lista de combinações compara pelo conteúdo, como o resto do registro.
+    public bool Equals(StreamLimits? other) =>
+        other is not null && MaxHeight == other.MaxHeight && MaxFrameRate == other.MaxFrameRate &&
+        MaxBitrateKbps == other.MaxBitrateKbps && (Profiles ?? []).SequenceEqual(other.Profiles ?? []);
+
+    public override int GetHashCode() => HashCode.Combine(MaxHeight, MaxFrameRate, MaxBitrateKbps, Profiles?.Count ?? 0);
 }
+
+/// <summary>Uma combinação de resolução (altura) e fps que o servidor aceita no compartilhamento.</summary>
+public sealed record StreamProfile(int Height, int FrameRate);
 
 /// <summary>Resposta de <c>GET /limits</c>: o que a API aceita, para o aplicativo só oferecer o que cabe.</summary>
 public sealed record ServerLimitsDto(StreamLimits Relay);

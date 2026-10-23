@@ -91,6 +91,19 @@ public sealed class GroupMember
     public DateTimeOffset AddedAtUtc { get; set; }
 }
 
+/// <summary>Configuração que o dono muda pelo painel /admin, sem novo deploy (ex.: os limites do compartilhamento).</summary>
+public sealed class AppSetting
+{
+    public const int MaxValueLength = 2000;
+
+    public required string Key { get; set; }
+
+    /// <summary>JSON do valor.</summary>
+    public required string Value { get; set; }
+
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+}
+
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
     public DbSet<User> Users => Set<User>();
@@ -106,6 +119,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<ErrorEvent> ErrorEvents => Set<ErrorEvent>();
 
     public DbSet<UserActivity> UserActivities => Set<UserActivity>();
+
+    public DbSet<AppSetting> Settings => Set<AppSetting>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -169,6 +184,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             error.Property(e => e.Device).HasMaxLength(ErrorEvent.MaxDetailsLength + 1);
             error.Property(e => e.Context).HasMaxLength(ErrorEvent.MaxDetailsLength + 1);
             error.Property(e => e.Breadcrumbs).HasMaxLength(ErrorEvent.MaxBreadcrumbsLength + 1);
+        });
+
+        modelBuilder.Entity<AppSetting>(setting =>
+        {
+            setting.HasKey(s => s.Key);
+            setting.Property(s => s.Key).HasMaxLength(64);
+            setting.Property(s => s.Value).HasMaxLength(AppSetting.MaxValueLength);
         });
 
         // Também sem chave estrangeira: apagar a conta não muda quantos estavam ativos naquele dia.

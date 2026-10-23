@@ -66,6 +66,7 @@ public static class ObservabilityEndpoints
         api.MapGet("/summary", SummaryAsync);
         api.MapGet("/issues", IssuesAsync);
         api.MapGet("/events", EventsAsync);
+        api.MapLimitsAdminEndpoints();
     }
 
     private static async Task<IResult> ReceiveErrorsAsync(ClientErrorReport? report, HttpContext context, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)

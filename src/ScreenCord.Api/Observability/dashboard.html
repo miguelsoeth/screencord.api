@@ -106,6 +106,19 @@
       </div>
     </section>
 
+    <section id="limits-section">
+      <h2>Qualidade do compartilhamento pelo servidor <span class="muted" id="limits-state" style="font-weight:400;font-size:12px"></span></h2>
+      <p class="muted" style="margin:0 0 12px">Marque o que os grupos pela internet podem usar (as salas locais não passam por aqui). Marcar uma combinação libera também as menores: 720p a 60 fps libera 720p a 30 fps e 540p. Vale já para os próximos compartilhamentos; os em andamento continuam como estão. Um aplicativo mais antigo só enxerga a maior resolução e o maior fps, e pode tentar 1080p a 60 fps quando só 720p a 60 e 1080p a 30 estão liberados (a API recusa).</p>
+      <div class="table-wrap"><table id="limits-grid" style="width:auto"></table></div>
+      <form id="limits-form" class="controls" style="margin-top:12px">
+        <label for="limits-mbps">Taxa de bits máxima</label>
+        <input id="limits-mbps" type="number" min="0.3" max="50" step="0.1" style="width:90px"> Mbps
+        <button type="submit">Salvar</button>
+        <button id="limits-reset" type="button">Restaurar padrão</button>
+      </form>
+      <p class="muted" id="limits-note" style="margin:8px 0 0"></p>
+    </section>
+
     <section>
       <h2>Rotas</h2>
       <div class="table-wrap"><table>
@@ -162,10 +175,17 @@
     return node;
   }
 
-  async function api(path) {
-    const response = await fetch(location.pathname.replace(/\/$/, "") + "/api/" + path, { headers: { "X-Admin-Token": token } });
+  async function api(path, method = "GET", body) {
+    const headers = { "X-Admin-Token": token };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const response = await fetch(location.pathname.replace(/\/$/, "") + "/api/" + path, {
+      method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+    });
     if (response.status === 401) { showLogin("Token inválido."); throw new Error("401"); }
-    if (!response.ok) throw new Error("HTTP " + response.status);
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      throw new Error(error && error.message ? error.message : "HTTP " + response.status);
+    }
     return response.json();
   }
 
@@ -376,6 +396,87 @@
     $("events-section").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  // Limites do compartilhamento pelo servidor. A grade é um conjunto fechado para baixo: marcar uma combinação marca
+  // as menores e desmarcar uma desmarca as maiores. À API vão só as combinações que nenhuma outra cobre.
+  let limits = null;
+  const cell = (h, f) => h + "x" + f;
+  const covers = (a, b) => a.height >= b.height && a.frameRate >= b.frameRate;
+
+  function renderLimits(view) {
+    limits = view;
+    const checked = new Set();
+    // Configuração no formato antigo (um par só) vem sem a lista.
+    const profiles = view.relay.profiles || [{ height: view.relay.maxHeight, frameRate: view.relay.maxFrameRate }];
+    for (const h of view.heights) for (const f of view.frameRates)
+      if (profiles.some(p => covers(p, { height: h, frameRate: f }))) checked.add(cell(h, f));
+    limits.checked = checked;
+    drawLimitsGrid();
+    $("limits-mbps").value = view.relay.maxBitrateKbps / 1000;
+    $("limits-mbps").min = view.minBitrateKbps / 1000;
+    $("limits-mbps").max = view.maxBitrateKbps / 1000;
+    $("limits-state").textContent = view.custom
+      ? "ajustado pelo painel em " + dateFmt.format(new Date(view.updatedAtUtc))
+      : "padrão da API (nada ajustado pelo painel)";
+    limitsNote();
+  }
+
+  function drawLimitsGrid() {
+    const rows = [...limits.heights].sort((a, b) => b - a);
+    $("limits-grid").replaceChildren(
+      el("thead", {}, el("tr", {}, el("th", {}, "Resolução"), ...limits.frameRates.map(f => el("th", {}, f + " fps")))),
+      el("tbody", {}, ...rows.map(h => el("tr", {},
+        el("td", {}, h + "p"),
+        ...limits.frameRates.map(f => {
+          const box = el("input", { type: "checkbox", "aria-label": `${h}p a ${f} fps` });
+          box.checked = limits.checked.has(cell(h, f));
+          box.addEventListener("change", () => {
+            for (const hh of limits.heights) for (const ff of limits.frameRates) {
+              if (box.checked && hh <= h && ff <= f) limits.checked.add(cell(hh, ff));
+              if (!box.checked && hh >= h && ff >= f) limits.checked.delete(cell(hh, ff));
+            }
+            drawLimitsGrid();
+            limitsNote();
+          });
+          return el("td", {}, box);
+        })))));
+  }
+
+  function chosenProfiles() {
+    const all = [];
+    for (const h of limits.heights) for (const f of limits.frameRates)
+      if (limits.checked.has(cell(h, f))) all.push({ height: h, frameRate: f });
+    return all.filter(p => !all.some(o => o !== p && covers(o, p)));
+  }
+
+  // A banda de saída é a taxa vezes os espectadores: 4 pessoas assistindo a 3 Mbps = 12 Mbps de saída.
+  function limitsNote(message) {
+    const mbps = Number($("limits-mbps").value) || 0;
+    $("limits-note").textContent = message ||
+      `Cada espectador custa até ${mbps} Mbps de saída do servidor (4 espectadores: ${(mbps * 4).toFixed(1).replace(/\.0$/, "")} Mbps). A franquia do VPS é de 5 TB/mês.`;
+  }
+  $("limits-mbps").addEventListener("input", () => limits && limitsNote());
+
+  $("limits-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const profiles = chosenProfiles();
+    if (!profiles.length) { limitsNote("Marque ao menos uma combinação."); return; }
+    try {
+      renderLimits(await api("limits", "PUT", { profiles, maxBitrateKbps: Math.round(Number($("limits-mbps").value) * 1000) }));
+      limitsNote("Salvo. Vale para os próximos compartilhamentos.");
+    } catch (error) { if (error.message !== "401") limitsNote("Não salvou: " + error.message); }
+  });
+  $("limits-reset").addEventListener("click", async () => {
+    if (!confirm("Voltar aos limites padrão da API?")) return;
+    try {
+      renderLimits(await api("limits", "DELETE"));
+      limitsNote("Voltou ao padrão.");
+    } catch (error) { if (error.message !== "401") limitsNote("Não restaurou: " + error.message); }
+  });
+  async function loadLimits() {
+    try { renderLimits(await api("limits")); }
+    catch (e) { if (e.message !== "401") limitsNote("Falha ao carregar: " + e.message); }
+  }
+
   async function refresh() {
     try { await Promise.all([loadSummary(), loadIssues()]); }
     catch (e) { if (e.message !== "401") $("meta").textContent = "Falha ao carregar: " + e.message; }
@@ -384,6 +485,8 @@
   let timer;
   async function start() {
     $("login").hidden = true; $("app").hidden = false;
+    // Só ao abrir: o refresh de 30 s apagaria o que está sendo editado.
+    loadLimits();
     await refresh();
     clearInterval(timer);
     timer = setInterval(() => { if (!document.hidden && token) refresh(); }, 30000);

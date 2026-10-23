@@ -117,11 +117,10 @@ public sealed class ScreenShareTests : IAsyncLifetime
 
     [Theory]
     [InlineData(960, 540, 45, 1500)]
-    [InlineData(1280, 720, 30, 3000)]   // acima de 2,5 Mbps
+    [InlineData(1280, 720, 30, 3001)]   // acima de 3 Mbps
     [InlineData(960, 540, 30, 200)]
-    [InlineData(960, 540, 60, 1500)]    // pelo servidor, só 30 fps
-    [InlineData(1280, 720, 60, 2500)]   // 720p também só a 30 fps
-    [InlineData(1920, 1080, 30, 2500)]  // acima de 720p: só direto, nas salas locais
+    [InlineData(1920, 1080, 60, 3000)]  // 1080p só a 30 fps pelo servidor; a 60, só direto, nas salas locais
+    [InlineData(2560, 1440, 30, 3000)]  // acima de 1080p
     [InlineData(961, 540, 30, 1500)]
     public async Task Compartilhar_ConfiguracaoForaDasOpcoes_RetornaNull(int width, int height, int fps, int kbps)
     {
