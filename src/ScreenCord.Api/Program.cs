@@ -22,6 +22,7 @@ builder.Services.AddOptions<RelayLimitsOptions>()
     .Bind(builder.Configuration.GetSection(RelayLimitsOptions.SectionName))
     .Validate(o => o.ToLimits().IsSane, "RelayLimits fora do que o aplicativo sabe fazer.")
     .ValidateOnStart();
+builder.Services.AddSingleton<RelayLimitsStore>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default") ?? "Data Source=screencord.db"));
@@ -99,7 +100,11 @@ if (behindProxy)
 using (var scope = app.Services.CreateScope())
 {
     // Cria o banco (ou as tabelas novas). Para evoluir o esquema em produção, troque por migrações do EF Core.
-    DatabaseSchema.Ensure(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    DatabaseSchema.Ensure(db);
+
+    // Os limites do compartilhamento que o dono ajustou pelo painel valem sobre os padrões.
+    app.Services.GetRequiredService<RelayLimitsStore>().Load(db);
 }
 
 app.MapScreenCordOpenApi();
