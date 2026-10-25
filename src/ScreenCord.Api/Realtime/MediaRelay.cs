@@ -1,15 +1,14 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
-using System.Threading.Channels;
 using ScreenCord.Contracts;
 
 namespace ScreenCord.Api.Realtime;
 
 /// <summary>
 /// Repassa a mídia do compartilhamento de tela de quem compartilha para quem assiste, sem decodificar.
-/// Cada espectador tem a própria fila: quem tem conexão lenta perde quadros (e volta no próximo quadro-chave)
-/// sem atrasar os outros nem quem compartilha.
+/// Cada espectador tem a própria fila (<see cref="MediaQueue"/>, limitada por tempo): quem tem conexão lenta perde
+/// quadros (e volta no próximo quadro-chave) sem atrasar os outros nem quem compartilha.
 /// </summary>
 public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
 {
@@ -78,7 +77,7 @@ public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
         }
 
         Viewer? viewer = null;
-        viewer = new Viewer(socket, viewerId, session.QueueLimitBytes, () => FindSession(viewer!)?.RequestKeyframe());
+        viewer = new Viewer(socket, viewerId, session.CreateQueue(), () => FindSession(viewer!)?.RequestKeyframe());
         session.AddViewer(viewer);
         try
         {
@@ -142,8 +141,8 @@ public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
         private readonly PublisherRateLimit _rateLimit = new(bitrateKbps, time);
         private long _lastKeyframeRequestTicks;
 
-        /// <summary>Cerca de 1 s de vídeo (no mínimo 512 KB, para caber um quadro-chave): mais que isso, o espectador está atrasado.</summary>
-        public int QueueLimitBytes { get; } = Math.Max(512 * 1024, bitrateKbps * 1000 / 8);
+        /// <summary>Fila de um espectador novo: começa no próximo quadro-chave.</summary>
+        public MediaQueue CreateQueue() => new(bitrateKbps, time, waitForKeyframe: true);
 
         public int ViewerCount
         {
@@ -387,12 +386,9 @@ public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
 
     private sealed record Packet(byte[] Data, byte Type, bool IsKeyframe);
 
-    private sealed class Viewer(WebSocket socket, Guid userId, int queueLimitBytes, Action requestKeyframe)
+    private sealed class Viewer(WebSocket socket, Guid userId, MediaQueue queue, Action requestKeyframe)
     {
-        private readonly Channel<Packet> _queue = Channel.CreateUnbounded<Packet>(new UnboundedChannelOptions { SingleReader = true });
         private readonly CancellationTokenSource _closed = new();
-        private long _queuedBytes;
-        private volatile bool _waitingForKeyframe = true;
         private volatile bool _videoPaused;
 
         public Guid UserId { get; } = userId;
@@ -400,39 +396,17 @@ public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
         /// <summary>Enfileira o pacote. Retorna falso se o espectador precisa de um quadro-chave para continuar.</summary>
         public bool Offer(Packet packet)
         {
-            if (packet.Type == MediaContract.Video)
+            if (packet.Type != MediaContract.Video)
             {
-                if (_videoPaused)
-                {
-                    // Não está olhando: economiza a banda do vídeo; o áudio continua.
-                    return true;
-                }
-
-                if (_waitingForKeyframe && !packet.IsKeyframe)
-                {
-                    return false;
-                }
-
-                if (Interlocked.Read(ref _queuedBytes) + packet.Data.Length > queueLimitBytes)
-                {
-                    // Atrasado demais: descarta até o próximo quadro-chave em vez de acumular atraso.
-                    _waitingForKeyframe = true;
-                    return false;
-                }
-
-                _waitingForKeyframe = false;
-            }
-            else if (Interlocked.Read(ref _queuedBytes) + packet.Data.Length > queueLimitBytes * 2)
-            {
+                queue.OfferAudio(packet.Data);
                 return true;
             }
 
-            Interlocked.Add(ref _queuedBytes, packet.Data.Length);
-            _queue.Writer.TryWrite(packet);
-            return true;
+            // Não está olhando: economiza a banda do vídeo; o áudio continua.
+            return _videoPaused || queue.OfferVideo(packet.Data, packet.IsKeyframe) != MediaOffer.NeedsKeyframe;
         }
 
-        public void ResetToKeyframe() => _waitingForKeyframe = true;
+        public void ResetToKeyframe() => queue.ResetToKeyframe();
 
         public void Close() => _closed.Cancel();
 
@@ -442,10 +416,9 @@ public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
             var receive = DrainIncomingAsync(linked);
             try
             {
-                await foreach (var packet in _queue.Reader.ReadAllAsync(linked.Token))
+                await foreach (var packet in queue.ReadAllAsync(linked.Token))
                 {
-                    Interlocked.Add(ref _queuedBytes, -packet.Data.Length);
-                    await socket.SendAsync(packet.Data, WebSocketMessageType.Binary, true, linked.Token);
+                    await socket.SendAsync(packet, WebSocketMessageType.Binary, true, linked.Token);
                 }
             }
             catch (OperationCanceledException)
@@ -487,13 +460,13 @@ public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
                             _videoPaused = true;
                             break;
                         case MediaContract.ResumeVideo when _videoPaused:
-                            _waitingForKeyframe = true;
+                            queue.ResetToKeyframe();
                             _videoPaused = false;
                             requestKeyframe();
                             break;
                         case MediaContract.KeyframeRequest when !_videoPaused:
                             // Recomeça do próximo quadro-chave; quem compartilha recebe no máximo um pedido a cada meio segundo.
-                            _waitingForKeyframe = true;
+                            queue.ResetToKeyframe();
                             requestKeyframe();
                             break;
                     }
