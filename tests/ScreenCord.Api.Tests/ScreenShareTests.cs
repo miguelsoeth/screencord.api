@@ -69,12 +69,12 @@ public sealed class ScreenShareTests : IAsyncLifetime
         return hub;
     }
 
-    private async Task<WebSocket> ConnectMediaAsync(HttpClient client, Guid sharerId)
+    private async Task<WebSocket> ConnectMediaAsync(HttpClient client, Guid sharerId, ShareKind kind = ShareKind.Screen)
     {
         var token = Token(client);
         var webSocket = _factory.Server.CreateWebSocketClient();
         webSocket.ConfigureRequest = request => request.Headers.Authorization = "Bearer " + token;
-        var socket = await webSocket.ConnectAsync(MediaContract.BuildUri(_factory.Server.BaseAddress, _group.Id, sharerId), CancellationToken.None);
+        var socket = await webSocket.ConnectAsync(MediaContract.BuildUri(_factory.Server.BaseAddress, _group.Id, sharerId, kind), CancellationToken.None);
         _disposables.Add(new SocketDisposer(socket));
         return socket;
     }
@@ -429,6 +429,145 @@ public sealed class ScreenShareTests : IAsyncLifetime
         // O fechamento do canal antigo não encerrou o compartilhamento.
         var presence = await bruno.Connection.InvokeAsync<GroupPresenceDto?>(GroupsHubContract.JoinGroup, _group.Id);
         Assert.Equal(360, Assert.Single(presence!.ScreenShares!).Height);
+    }
+
+    private static readonly ScreenShareStart CameraStart = Hd with { Kind = ShareKind.Camera, HasAudio = false };
+
+    [Fact]
+    public async Task TelaECameraJuntas_AparecemAsDuasComATelaPrimeiro()
+    {
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+
+        // A câmera entra antes da tela, mas a lista sempre traz a tela primeiro (quem só conhece uma por pessoa fica com ela).
+        Assert.NotNull(await ana.StartAsync(CameraStart));
+        Assert.NotNull(await ana.StartAsync(Hd));
+
+        var presence = await bruno.NextPresenceAsync(p => p.ScreenShares?.Count == 2);
+        Assert.Equal([ShareKind.Screen, ShareKind.Camera], presence.ScreenShares!.Select(s => s.Kind));
+        Assert.All(presence.ScreenShares!, s => Assert.Equal(_anaUser.Id, s.UserId));
+        var listed = (await _bruno.GetFromJsonAsync<List<GroupDto>>("/groups"))!.Single();
+        Assert.Equal(2, listed.ScreenShares!.Count);
+    }
+
+    [Fact]
+    public async Task PararACamera_NaoPara_ATela()
+    {
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+        await ana.StartAsync(Hd);
+        await ana.StartAsync(CameraStart);
+        await bruno.NextPresenceAsync(p => p.ScreenShares?.Count == 2);
+
+        await ana.Connection.InvokeAsync(GroupsHubContract.StopShare, ShareKind.Camera);
+
+        var presence = await bruno.NextPresenceAsync(p => p.ScreenShares?.Count == 1);
+        Assert.Equal(ShareKind.Screen, presence.ScreenShares![0].Kind);
+    }
+
+    [Fact]
+    public async Task PararTudo_EncerraTelaECamera()
+    {
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+        await ana.StartAsync(Hd);
+        await ana.StartAsync(CameraStart);
+        await bruno.NextPresenceAsync(p => p.ScreenShares?.Count == 2);
+
+        await ana.Connection.InvokeAsync(GroupsHubContract.StopScreenShare);
+
+        await bruno.NextPresenceAsync(p => p.ScreenShares is { Count: 0 });
+    }
+
+    [Fact]
+    public async Task NovaCamera_SubstituiASuaCamera_ESemMexerNaTela()
+    {
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+        await ana.StartAsync(Hd);
+        await ana.StartAsync(CameraStart);
+
+        await ana.StartAsync(CameraStart with { Height = 360, Width = 640, BitrateKbps = 1000 });
+
+        var presence = await bruno.NextPresenceAsync(p => p.ScreenShares is { Count: 2 } shares && shares[1].Height == 360);
+        Assert.Equal(540, presence.ScreenShares![0].Height);
+    }
+
+    [Fact]
+    public async Task MidiaDaCamera_NaoMistura_ComADaTela()
+    {
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+        await ana.StartAsync(Hd);
+        await ana.StartAsync(CameraStart);
+        var screenPublisher = await ConnectMediaAsync(_ana, _anaUser.Id);
+        var cameraPublisher = await ConnectMediaAsync(_ana, _anaUser.Id, ShareKind.Camera);
+        var cameraViewer = await ConnectMediaAsync(_bruno, _anaUser.Id, ShareKind.Camera);
+        var screenViewer = await ConnectMediaAsync(_bruno, _anaUser.Id);
+        Assert.Equal(MediaContract.KeyframeRequest, (await ReceiveAsync(cameraPublisher))![0]);
+        Assert.Equal(MediaContract.KeyframeRequest, (await ReceiveAsync(screenPublisher))![0]);
+
+        var cameraFrame = Packet(MediaContract.Video, keyframe: true, 1, 1);
+        var screenFrame = Packet(MediaContract.Video, keyframe: true, 2, 2);
+        await SendAsync(cameraPublisher, cameraFrame);
+        await SendAsync(screenPublisher, screenFrame);
+
+        Assert.Equal(cameraFrame, await ReceiveAsync(cameraViewer));
+        Assert.Equal(screenFrame, await ReceiveAsync(screenViewer));
+    }
+
+    [Fact]
+    public async Task CanalDaCameraCai_EncerraSoACamera()
+    {
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+        await ana.StartAsync(Hd);
+        await ana.StartAsync(CameraStart);
+        var screenPublisher = await ConnectMediaAsync(_ana, _anaUser.Id);
+        var cameraPublisher = await ConnectMediaAsync(_ana, _anaUser.Id, ShareKind.Camera);
+        await bruno.NextPresenceAsync(p => p.ScreenShares?.Count == 2);
+
+        await cameraPublisher.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
+
+        var presence = await bruno.NextPresenceAsync(p => p.ScreenShares?.Count == 1);
+        Assert.Equal(ShareKind.Screen, presence.ScreenShares![0].Kind);
+        Assert.Equal(WebSocketState.Open, screenPublisher.State);
+    }
+
+    [Fact]
+    public async Task MidiaSemTipo_ValeATelaOuASoCameraQueExistir()
+    {
+        // Versões do app que só tinham uma transmissão por pessoa não mandam o tipo na mídia.
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+        await ana.StartAsync(CameraStart);
+        var publisher = await ConnectMediaAsync(_ana, _anaUser.Id, ShareKind.Camera);
+        var oldStyleUri = new UriBuilder(MediaContract.BuildUri(_factory.Server.BaseAddress, _group.Id, _anaUser.Id)) { Query = "" }.Uri;
+        var webSocket = _factory.Server.CreateWebSocketClient();
+        var token = Token(_bruno);
+        webSocket.ConfigureRequest = request => request.Headers.Authorization = "Bearer " + token;
+
+        var viewer = await webSocket.ConnectAsync(oldStyleUri, CancellationToken.None);
+        _disposables.Add(new SocketDisposer(viewer));
+
+        Assert.Equal(MediaContract.KeyframeRequest, (await ReceiveAsync(publisher))![0]);
+        var frame = Packet(MediaContract.Video, keyframe: true, 5);
+        await SendAsync(publisher, frame);
+        Assert.Equal(frame, await ReceiveAsync(viewer));
     }
 
     private sealed class Hub

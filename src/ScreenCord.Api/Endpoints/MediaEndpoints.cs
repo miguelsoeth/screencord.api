@@ -6,7 +6,8 @@ using ScreenCord.Contracts;
 namespace ScreenCord.Api.Endpoints;
 
 /// <summary>
-/// Canal de mídia do compartilhamento de tela (WebSocket). O compartilhamento é anunciado pelo hub
+/// Canal de mídia de uma transmissão (WebSocket): a tela ou a câmera de uma pessoa, escolhida pelo parâmetro
+/// <see cref="MediaContract.KindQuery"/> (sem ele, a tela). A transmissão é anunciada pelo hub
 /// (<see cref="GroupsHubContract.StartScreenShare"/>); aqui só trafegam os pacotes de vídeo e áudio.
 /// </summary>
 public static class MediaEndpoints
@@ -40,7 +41,11 @@ public static class MediaEndpoints
             return ApiResults.Error(StatusCodes.Status404NotFound, "group_not_found", "Grupo não encontrado ou você não faz parte dele.");
         }
 
-        var share = presence.FindShare(groupId, sharerId);
+        // Sem o parâmetro (versões do app que só tinham uma transmissão por pessoa) vale a que a pessoa tiver: a tela, senão a câmera.
+        var kind = context.Request.Query.ContainsKey(MediaContract.KindQuery)
+            ? MediaContract.ParseKind(context.Request.Query[MediaContract.KindQuery])
+            : presence.FindShare(groupId, sharerId, ShareKind.Screen)?.Kind ?? ShareKind.Camera;
+        var share = presence.FindShare(groupId, sharerId, kind);
         if (sharerId == me)
         {
             if (share is null)
@@ -49,10 +54,10 @@ public static class MediaEndpoints
             }
 
             using var socket = await context.WebSockets.AcceptWebSocketAsync();
-            var wasCurrent = await relay.PublishAsync(socket, groupId, me, share.BitrateKbps, aborted);
+            var wasCurrent = await relay.PublishAsync(socket, groupId, me, kind, share.BitrateKbps, aborted);
 
-            // O canal caiu sem que o compartilhamento fosse encerrado pelo hub: quem assiste precisa saber.
-            if (wasCurrent && presence.StopShare(groupId, me))
+            // O canal caiu sem que a transmissão fosse encerrada pelo hub: quem assiste precisa saber.
+            if (wasCurrent && presence.StopShare(groupId, me, kind))
             {
                 logger.LogInformation("Compartilhamento de tela encerrado pela queda do canal de mídia.");
                 await notifier.PresenceChangedAsync(db, groupId, CancellationToken.None);
@@ -73,7 +78,7 @@ public static class MediaEndpoints
 
         using (var socket = await context.WebSockets.AcceptWebSocketAsync())
         {
-            await relay.WatchAsync(socket, groupId, sharerId, me, () => presence.FindShare(groupId, sharerId) is not null, aborted);
+            await relay.WatchAsync(socket, groupId, sharerId, kind, me, () => presence.FindShare(groupId, sharerId, kind) is not null, aborted);
         }
 
         return Results.Empty;

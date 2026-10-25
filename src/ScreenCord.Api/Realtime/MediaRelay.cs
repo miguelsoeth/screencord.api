@@ -6,7 +6,7 @@ using ScreenCord.Contracts;
 namespace ScreenCord.Api.Realtime;
 
 /// <summary>
-/// Repassa a mídia do compartilhamento de tela de quem compartilha para quem assiste, sem decodificar.
+/// Repassa a mídia de cada transmissão (tela ou câmera de uma pessoa) de quem transmite para quem assiste, sem decodificar.
 /// Cada espectador tem a própria fila (<see cref="MediaQueue"/>, limitada por tempo): quem tem conexão lenta perde
 /// quadros (e volta no próximo quadro-chave) sem atrasar os outros nem quem compartilha.
 /// </summary>
@@ -17,36 +17,37 @@ public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
 
     private static readonly TimeSpan PublisherWait = TimeSpan.FromSeconds(10);
 
-    private readonly ConcurrentDictionary<(Guid GroupId, Guid SharerId), Session> _sessions = new();
+    private readonly ConcurrentDictionary<(Guid GroupId, Guid SharerId, ShareKind Kind), Session> _sessions = new();
 
     /// <summary>
     /// Recebe os pacotes de quem compartilha até a conexão fechar ou o compartilhamento acabar. Retorna
     /// verdadeiro se este ainda era o canal do compartilhamento ao terminar (não foi substituído nem encerrado).
     /// </summary>
-    public async Task<bool> PublishAsync(WebSocket socket, Guid groupId, Guid sharerId, int bitrateKbps, CancellationToken cancellationToken)
+    public async Task<bool> PublishAsync(WebSocket socket, Guid groupId, Guid sharerId, ShareKind kind, int bitrateKbps, CancellationToken cancellationToken)
     {
         var session = new Session(socket, bitrateKbps, time, logger);
-        if (_sessions.TryRemove((groupId, sharerId), out var previous))
+        var key = (groupId, sharerId, kind);
+        if (_sessions.TryRemove(key, out var previous))
         {
             // Outra janela da mesma conta recomeçou o compartilhamento: quem assistia passa a receber desta.
             session.AdoptViewers(previous);
             previous.ClosePublisher();
         }
 
-        _sessions[(groupId, sharerId)] = session;
+        _sessions[key] = session;
         try
         {
             await session.ReceiveFromPublisherAsync(cancellationToken);
         }
         finally
         {
-            if (_sessions.TryRemove(new KeyValuePair<(Guid, Guid), Session>((groupId, sharerId), session)))
+            if (_sessions.TryRemove(new KeyValuePair<(Guid, Guid, ShareKind), Session>(key, session)))
             {
                 session.CloseViewers();
             }
         }
 
-        return !session.WasStopped && !_sessions.ContainsKey((groupId, sharerId));
+        return !session.WasStopped && !_sessions.ContainsKey(key);
     }
 
     /// <summary>Envia ao espectador os pacotes do compartilhamento até ele sair ou o compartilhamento acabar.</summary>
@@ -54,11 +55,11 @@ public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
     /// O compartilhamento é anunciado pelo hub um instante antes de quem compartilha abrir o canal de mídia;
     /// quem chega nesse intervalo espera o canal por até alguns segundos, enquanto <paramref name="isShareActive"/> valer.
     /// </remarks>
-    public async Task WatchAsync(WebSocket socket, Guid groupId, Guid sharerId, Guid viewerId, Func<bool> isShareActive, CancellationToken cancellationToken)
+    public async Task WatchAsync(WebSocket socket, Guid groupId, Guid sharerId, ShareKind kind, Guid viewerId, Func<bool> isShareActive, CancellationToken cancellationToken)
     {
         Session? session;
         var deadline = Environment.TickCount64 + (long)PublisherWait.TotalMilliseconds;
-        while (!_sessions.TryGetValue((groupId, sharerId), out session))
+        while (!_sessions.TryGetValue((groupId, sharerId, kind), out session))
         {
             if (Environment.TickCount64 > deadline || !isShareActive())
             {
@@ -93,20 +94,29 @@ public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
         }
     }
 
-    /// <summary>Encerra o compartilhamento: quem compartilha e quem assiste são desconectados.</summary>
-    public void Stop(Guid groupId, Guid sharerId)
+    /// <summary>Encerra a transmissão: quem transmite e quem assiste são desconectados.</summary>
+    public void Stop(Guid groupId, Guid sharerId, ShareKind kind)
     {
-        if (_sessions.TryRemove((groupId, sharerId), out var session))
+        if (_sessions.TryRemove((groupId, sharerId, kind), out var session))
         {
             session.ClosePublisher();
             session.CloseViewers();
         }
     }
 
+    /// <summary>Encerra todas as transmissões do usuário na sala (tela e câmera), ex.: ele saiu do grupo.</summary>
+    public void StopAll(Guid groupId, Guid sharerId)
+    {
+        foreach (var kind in Enum.GetValues<ShareKind>())
+        {
+            Stop(groupId, sharerId, kind);
+        }
+    }
+
     /// <summary>Desconecta o usuário de tudo o que ele assiste na sala (ex.: ele saiu da sala ou do grupo).</summary>
     public void DisconnectViewer(Guid groupId, Guid viewerId)
     {
-        foreach (var ((group, _), session) in _sessions)
+        foreach (var ((group, _, _), session) in _sessions)
         {
             if (group == groupId)
             {
@@ -117,8 +127,8 @@ public sealed class MediaRelay(TimeProvider time, ILogger<MediaRelay> logger)
 
     private Session? FindSession(Viewer viewer) => _sessions.Values.FirstOrDefault(s => s.Contains(viewer));
 
-    public int ViewerCount(Guid groupId, Guid sharerId) =>
-        _sessions.TryGetValue((groupId, sharerId), out var session) ? session.ViewerCount : 0;
+    public int ViewerCount(Guid groupId, Guid sharerId, ShareKind kind) =>
+        _sessions.TryGetValue((groupId, sharerId, kind), out var session) ? session.ViewerCount : 0;
 
     private static async Task CloseAsync(WebSocket socket, WebSocketCloseStatus status, string description)
     {
