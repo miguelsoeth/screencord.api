@@ -3,8 +3,8 @@ using ScreenCord.Contracts;
 namespace ScreenCord.Api.Realtime;
 
 /// <summary>
-/// Quem está conectado a cada grupo e quem está compartilhando a tela, em memória. Cada conexão do hub
-/// fica em no máximo uma sala e tem no máximo um compartilhamento, sempre na sala em que está; um usuário
+/// Quem está conectado a cada grupo e quem está transmitindo, em memória. Cada conexão do hub fica em no máximo
+/// uma sala e tem no máximo uma transmissão de cada tipo (tela e câmera), sempre na sala em que está; um usuário
 /// com o aplicativo aberto em dois lugares conta uma vez só. O estado vale para esta instância da API:
 /// para escalar horizontalmente, troque por um armazenamento compartilhado (ex.: Redis).
 /// </summary>
@@ -12,7 +12,7 @@ public sealed class GroupPresence
 {
     private readonly Lock _lock = new();
     private readonly Dictionary<string, (Guid UserId, Guid GroupId)> _connections = [];
-    private readonly Dictionary<string, ScreenShareDto> _shares = [];
+    private readonly Dictionary<(string ConnectionId, ShareKind Kind), ScreenShareDto> _shares = [];
     private long _version;
 
     /// <summary>Coloca a conexão na sala. Retorna a sala anterior, se ela estava em outra.</summary>
@@ -25,7 +25,7 @@ public sealed class GroupPresence
             _connections[connectionId] = (userId, groupId);
             if (previous != groupId)
             {
-                _shares.Remove(connectionId);
+                RemoveSharesOf(connectionId);
             }
 
             _version++;
@@ -38,7 +38,7 @@ public sealed class GroupPresence
     {
         lock (_lock)
         {
-            _shares.Remove(connectionId);
+            RemoveSharesOf(connectionId);
             if (!_connections.Remove(connectionId, out var current))
             {
                 return null;
@@ -61,7 +61,7 @@ public sealed class GroupPresence
             foreach (var connectionId in removed)
             {
                 _connections.Remove(connectionId);
-                _shares.Remove(connectionId);
+                RemoveSharesOf(connectionId);
             }
 
             if (removed.Count > 0)
@@ -74,9 +74,9 @@ public sealed class GroupPresence
     }
 
     /// <summary>
-    /// Começa o compartilhamento de tela da conexão na sala em que ela está. Um compartilhamento anterior
-    /// do mesmo usuário na mesma sala (ex.: outra janela) é substituído. Retorna a sala, ou null se a conexão
-    /// não está em nenhuma.
+    /// Começa a transmissão da conexão na sala em que ela está. Uma transmissão anterior do mesmo usuário, do mesmo tipo,
+    /// na mesma sala (ex.: outra janela) é substituída; a do outro tipo continua (tela e câmera podem estar no ar juntas).
+    /// Retorna a sala, ou null se a conexão não está em nenhuma.
     /// </summary>
     public (Guid GroupId, ScreenShareDto Share)? StartShare(string connectionId, ScreenShareStart start)
     {
@@ -88,8 +88,8 @@ public sealed class GroupPresence
             }
 
             var replaced = _shares
-                .Where(s => s.Key != connectionId && s.Value.UserId == current.UserId &&
-                            _connections.TryGetValue(s.Key, out var c) && c.GroupId == current.GroupId)
+                .Where(s => s.Key.ConnectionId != connectionId && s.Key.Kind == start.Kind && s.Value.UserId == current.UserId &&
+                            _connections.TryGetValue(s.Key.ConnectionId, out var c) && c.GroupId == current.GroupId)
                 .Select(s => s.Key)
                 .ToList();
             foreach (var other in replaced)
@@ -98,44 +98,54 @@ public sealed class GroupPresence
             }
 
             var share = new ScreenShareDto(current.UserId, start.Width, start.Height, start.FrameRate, start.BitrateKbps, start.HasAudio, start.Kind);
-            _shares[connectionId] = share;
+            _shares[(connectionId, start.Kind)] = share;
             _version++;
             return (current.GroupId, share);
         }
     }
 
-    /// <summary>Encerra o compartilhamento da conexão. Retorna a sala e quem compartilhava, ou null se não havia.</summary>
-    public (Guid GroupId, Guid UserId)? StopShare(string connectionId)
+    /// <summary>Encerra todas as transmissões da conexão (tela e câmera). Retorna as que havia, cada uma com a sala.</summary>
+    public IReadOnlyList<StoppedShare> StopShares(string connectionId)
     {
         lock (_lock)
         {
-            return StopShareCore(connectionId);
+            return StopSharesCore(connectionId, null);
         }
     }
 
-    /// <summary>Encerra o compartilhamento da conexão se ele acontece numa sala diferente de <paramref name="groupId"/>.</summary>
-    public (Guid GroupId, Guid UserId)? StopShareIfInOtherGroup(string connectionId, Guid groupId)
+    /// <summary>Encerra a transmissão da conexão desse tipo. Retorna a sala e quem transmitia, ou null se não havia.</summary>
+    public StoppedShare? StopShare(string connectionId, ShareKind kind)
+    {
+        lock (_lock)
+        {
+            return StopSharesCore(connectionId, kind).FirstOrDefault();
+        }
+    }
+
+    /// <summary>Encerra as transmissões da conexão se elas acontecem numa sala diferente de <paramref name="groupId"/>.</summary>
+    public IReadOnlyList<StoppedShare> StopSharesIfInOtherGroup(string connectionId, Guid groupId)
     {
         lock (_lock)
         {
             return _connections.TryGetValue(connectionId, out var current) && current.GroupId != groupId
-                ? StopShareCore(connectionId)
-                : null;
+                ? StopSharesCore(connectionId, null)
+                : [];
         }
     }
 
-    /// <summary>Encerra o compartilhamento de um usuário numa sala, venha de que conexão vier (ex.: o canal de mídia caiu).</summary>
-    public bool StopShare(Guid groupId, Guid userId)
+    /// <summary>Encerra a transmissão de um usuário numa sala, venha de que conexão vier (ex.: o canal de mídia caiu).</summary>
+    public bool StopShare(Guid groupId, Guid userId, ShareKind kind)
     {
         lock (_lock)
         {
             var removed = _shares
-                .Where(s => s.Value.UserId == userId && _connections.TryGetValue(s.Key, out var c) && c.GroupId == groupId)
+                .Where(s => s.Key.Kind == kind && s.Value.UserId == userId &&
+                            _connections.TryGetValue(s.Key.ConnectionId, out var c) && c.GroupId == groupId)
                 .Select(s => s.Key)
                 .ToList();
-            foreach (var connectionId in removed)
+            foreach (var key in removed)
             {
-                _shares.Remove(connectionId);
+                _shares.Remove(key);
             }
 
             if (removed.Count > 0)
@@ -158,14 +168,14 @@ public sealed class GroupPresence
 
     /// <summary>
     /// Encerra as transmissões de uma sala que o grupo deixou de aceitar (ex.: o dono desligou a câmera). Retorna
-    /// quem estava transmitindo, para fechar o canal de mídia de cada um.
+    /// quem estava transmitindo e o tipo, para fechar o canal de mídia de cada uma.
     /// </summary>
-    public IReadOnlyList<Guid> StopSharesNotAllowed(Guid groupId, GroupSettings settings)
+    public IReadOnlyList<StoppedShare> StopSharesNotAllowed(Guid groupId, GroupSettings settings)
     {
         lock (_lock)
         {
             var removed = _shares
-                .Where(s => !settings.Allows(s.Value.Kind) && _connections.TryGetValue(s.Key, out var c) && c.GroupId == groupId)
+                .Where(s => !settings.Allows(s.Key.Kind) && _connections.TryGetValue(s.Key.ConnectionId, out var c) && c.GroupId == groupId)
                 .ToList();
             foreach (var share in removed)
             {
@@ -177,15 +187,16 @@ public sealed class GroupPresence
                 _version++;
             }
 
-            return removed.Select(s => s.Value.UserId).Distinct().ToList();
+            return removed.Select(s => new StoppedShare(groupId, s.Value.UserId, s.Key.Kind)).Distinct().ToList();
         }
     }
 
-    public ScreenShareDto? FindShare(Guid groupId, Guid userId)
+    /// <summary>A transmissão do usuário desse tipo na sala, ou null.</summary>
+    public ScreenShareDto? FindShare(Guid groupId, Guid userId, ShareKind kind)
     {
         lock (_lock)
         {
-            return SharesIn(groupId).FirstOrDefault(s => s.UserId == userId);
+            return SharesIn(groupId).FirstOrDefault(s => s.UserId == userId && s.Kind == kind);
         }
     }
 
@@ -214,27 +225,52 @@ public sealed class GroupPresence
         }
     }
 
-    private (Guid GroupId, Guid UserId)? StopShareCore(string connectionId)
+    /// <summary>Remove as transmissões da conexão (só as do tipo <paramref name="kind"/>, se informado); a versão só muda se havia alguma.</summary>
+    private List<StoppedShare> StopSharesCore(string connectionId, ShareKind? kind)
     {
-        if (!_shares.Remove(connectionId, out var share) || !_connections.TryGetValue(connectionId, out var current))
+        if (!_connections.TryGetValue(connectionId, out var current))
         {
-            return null;
+            return [];
         }
 
-        _version++;
-        return (current.GroupId, share.UserId);
+        var stopped = new List<StoppedShare>();
+        foreach (var key in _shares.Keys.Where(k => k.ConnectionId == connectionId && (kind is null || k.Kind == kind)).ToList())
+        {
+            stopped.Add(new StoppedShare(current.GroupId, _shares[key].UserId, key.Kind));
+            _shares.Remove(key);
+        }
+
+        if (stopped.Count > 0)
+        {
+            _version++;
+        }
+
+        return stopped;
+    }
+
+    private void RemoveSharesOf(string connectionId)
+    {
+        foreach (var key in _shares.Keys.Where(k => k.ConnectionId == connectionId).ToList())
+        {
+            _shares.Remove(key);
+        }
     }
 
     private List<Guid> ConnectedUsers(Guid groupId) =>
         _connections.Values.Where(c => c.GroupId == groupId).Select(c => c.UserId).Distinct().ToList();
 
+    /// <summary>Uma por pessoa e tipo, a tela antes da câmera: quem só conhece uma transmissão por pessoa fica com a tela.</summary>
     private List<ScreenShareDto> SharesIn(Guid groupId) =>
         _shares
-            .Where(s => _connections.TryGetValue(s.Key, out var c) && c.GroupId == groupId)
+            .Where(s => _connections.TryGetValue(s.Key.ConnectionId, out var c) && c.GroupId == groupId)
             .Select(s => s.Value)
-            .DistinctBy(s => s.UserId)
+            .DistinctBy(s => (s.UserId, s.Kind))
+            .OrderBy(s => s.Kind)
             .ToList();
 }
+
+/// <summary>Uma transmissão que acabou: a sala, quem transmitia e o tipo (para fechar o canal de mídia certo).</summary>
+public sealed record StoppedShare(Guid GroupId, Guid UserId, ShareKind Kind);
 
 /// <summary>Quem está numa sala num dado momento (só os ids); <see cref="GroupQueries"/> completa com os dados dos usuários.</summary>
 public sealed record PresenceSnapshot(Guid GroupId, IReadOnlyList<Guid> UserIds, long Version, IReadOnlyList<ScreenShareDto> Shares);

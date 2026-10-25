@@ -131,11 +131,16 @@ public sealed record GroupPresenceDto(
 
 /// <summary>
 /// Pedido para começar a transmitir na sala em que a conexão está: a tela ou a câmera (<paramref name="Kind"/>; quem
-/// não o envia está compartilhando a tela). O grupo precisa aceitar esse tipo (<see cref="GroupSettings"/>).
+/// não o envia está compartilhando a tela). O grupo precisa aceitar esse tipo (<see cref="GroupSettings"/>). Cada
+/// pessoa tem no máximo uma transmissão de cada tipo na sala, e as duas podem estar no ar juntas; pedir um tipo que já
+/// está no ar o substitui.
 /// </summary>
 public sealed record ScreenShareStart(int Width, int Height, int FrameRate, int BitrateKbps, bool HasAudio, ShareKind Kind = ShareKind.Screen);
 
-/// <summary>Transmissão ativa numa sala (tela ou câmera). A mídia passa por <see cref="MediaContract.Path"/>.</summary>
+/// <summary>
+/// Transmissão ativa numa sala (tela ou câmera). A mídia passa por <see cref="MediaContract.Path"/>. A mesma pessoa pode ter
+/// duas na lista (uma de cada tipo, a tela primeiro); quem só conhece uma por pessoa mostra a primeira.
+/// </summary>
 public sealed record ScreenShareDto(Guid UserId, int Width, int Height, int FrameRate, int BitrateKbps, bool HasAudio, ShareKind Kind = ShareKind.Screen);
 
 /// <summary>
@@ -260,12 +265,24 @@ public static class MediaContract
 
     public const byte KeyframeFlag = 1;
 
-    public static Uri BuildUri(Uri apiBaseUri, Guid groupId, Guid sharerId)
+    /// <summary>Parâmetro da consulta com o tipo da transmissão; ausente é a tela (o formato das versões que só tinham uma por pessoa).</summary>
+    public const string KindQuery = "kind";
+
+    public static Uri BuildUri(Uri apiBaseUri, Guid groupId, Guid sharerId, ShareKind kind = ShareKind.Screen)
     {
         var builder = new UriBuilder(new Uri(apiBaseUri, $"{Path.TrimStart('/')}/{groupId}/{sharerId}"));
         builder.Scheme = builder.Scheme == Uri.UriSchemeHttps ? "wss" : "ws";
+        if (kind != ShareKind.Screen)
+        {
+            builder.Query = $"{KindQuery}={kind.ToString().ToLowerInvariant()}";
+        }
+
         return builder.Uri;
     }
+
+    /// <summary>Lê o tipo do parâmetro <see cref="KindQuery"/>; vazio ou desconhecido é a tela.</summary>
+    public static ShareKind ParseKind(string? value) =>
+        Enum.TryParse<ShareKind>(value, ignoreCase: true, out var kind) && Enum.IsDefined(kind) ? kind : ShareKind.Screen;
 
     public static void WriteHeader(Span<byte> destination, byte type, byte flags, long timestampMicroseconds)
     {
@@ -326,8 +343,11 @@ public static class GroupsHubContract
     /// </summary>
     public const string StartScreenShare = "StartScreenShare";
 
-    /// <summary>Cliente → servidor: encerra o compartilhamento de tela desta conexão.</summary>
+    /// <summary>Cliente → servidor (sem argumentos): encerra todas as transmissões desta conexão (tela e câmera).</summary>
     public const string StopScreenShare = "StopScreenShare";
+
+    /// <summary>Cliente → servidor: <see cref="ShareKind"/>; encerra só a transmissão desse tipo desta conexão (a tela continua se for a câmera).</summary>
+    public const string StopShare = "StopShare";
 }
 
 /// <summary>

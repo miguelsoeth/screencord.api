@@ -166,9 +166,9 @@ public static class GroupEndpoints
         // O que o grupo deixou de aceitar e já estava no ar termina agora.
         var settings = request.ToSettings();
         var stopped = presence.StopSharesNotAllowed(groupId, settings);
-        foreach (var sharer in stopped)
+        foreach (var share in stopped)
         {
-            relay.Stop(groupId, sharer);
+            relay.Stop(groupId, share.UserId, share.Kind);
         }
 
         await notifier.GroupChangedAsync(db, groupId, cancellationToken);
@@ -256,7 +256,7 @@ public static class GroupEndpoints
 
         // Quem saiu deixa de aparecer conectado (e de compartilhar ou assistir); os demais recebem a nova contagem.
         presence.RemoveUser(me, groupId);
-        relay.Stop(groupId, me);
+        relay.StopAll(groupId, me);
         relay.DisconnectViewer(groupId, me);
         await notifier.GroupRemovedAsync(me, groupId, cancellationToken);
         if (remaining > 0)
@@ -299,7 +299,7 @@ public static class GroupEndpoints
         foreach (var member in members)
         {
             presence.RemoveUser(member, groupId);
-            relay.Stop(groupId, member);
+            relay.StopAll(groupId, member);
             relay.DisconnectViewer(groupId, member);
             await notifier.GroupRemovedAsync(member, groupId, cancellationToken);
         }
