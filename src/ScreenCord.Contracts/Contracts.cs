@@ -56,10 +56,30 @@ public sealed record GroupDto(
     int MemberCount,
     IReadOnlyList<PresenceUserDto> ConnectedUsers,
     long PresenceVersion,
-    IReadOnlyList<ScreenShareDto>? ScreenShares = null)
+    IReadOnlyList<ScreenShareDto>? ScreenShares = null,
+    GroupSettings? Settings = null)
 {
     [JsonIgnore]
     public IReadOnlyList<Guid> ConnectedUserIds => ConnectedUsers?.Select(u => u.Id).ToList() ?? [];
+}
+
+/// <summary>Tipo de transmissão numa sala: a tela (ou janela) do computador ou a câmera (webcam).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ShareKind>))]
+public enum ShareKind
+{
+    Screen,
+    Camera,
+}
+
+/// <summary>
+/// O que o grupo aceita transmitir na sala; quem criou o grupo muda. Quem não conhece o campo (versões antigas do
+/// aplicativo, ou grupos criados antes dele) tem tudo liberado.
+/// </summary>
+public sealed record GroupSettings(bool AllowScreenShare = true, bool AllowCamera = true)
+{
+    public static GroupSettings Default { get; } = new();
+
+    public bool Allows(ShareKind kind) => kind == ShareKind.Camera ? AllowCamera : AllowScreenShare;
 }
 
 /// <param name="IsOwner">O integrante é quem criou o grupo.</param>
@@ -74,11 +94,26 @@ public sealed record GroupMemberDto(
     bool IsOwner = false);
 
 /// <param name="CanDelete">Quem pediu os detalhes pode excluir o grupo (só quem o criou).</param>
-public sealed record GroupDetailsDto(Guid Id, string Name, IReadOnlyList<GroupMemberDto> Members, long PresenceVersion, bool CanDelete = false);
+/// <param name="Settings">O que o grupo aceita transmitir; ausente nas versões da API anteriores a ele (vale tudo liberado).</param>
+/// <param name="CanEdit">Quem pediu os detalhes pode mudar as configurações do grupo (só quem o criou).</param>
+public sealed record GroupDetailsDto(
+    Guid Id,
+    string Name,
+    IReadOnlyList<GroupMemberDto> Members,
+    long PresenceVersion,
+    bool CanDelete = false,
+    GroupSettings? Settings = null,
+    bool CanEdit = false);
 
 public sealed record GroupCreate(string Name);
 
 public sealed record GroupMemberCreate(Guid UserId);
+
+/// <summary>Corpo de <c>PUT /groups/{id}/settings</c>: só quem criou o grupo pode mudar.</summary>
+public sealed record GroupSettingsUpdate(bool AllowScreenShare, bool AllowCamera)
+{
+    public GroupSettings ToSettings() => new(AllowScreenShare, AllowCamera);
+}
 
 /// <summary>
 /// Quem está conectado a um grupo e quem está compartilhando a tela, enviado pelo hub a todos os
@@ -94,11 +129,14 @@ public sealed record GroupPresenceDto(
     public IReadOnlyList<Guid> ConnectedUserIds => ConnectedUsers?.Select(u => u.Id).ToList() ?? [];
 }
 
-/// <summary>Pedido para começar a compartilhar a tela na sala em que a conexão está.</summary>
-public sealed record ScreenShareStart(int Width, int Height, int FrameRate, int BitrateKbps, bool HasAudio);
+/// <summary>
+/// Pedido para começar a transmitir na sala em que a conexão está: a tela ou a câmera (<paramref name="Kind"/>; quem
+/// não o envia está compartilhando a tela). O grupo precisa aceitar esse tipo (<see cref="GroupSettings"/>).
+/// </summary>
+public sealed record ScreenShareStart(int Width, int Height, int FrameRate, int BitrateKbps, bool HasAudio, ShareKind Kind = ShareKind.Screen);
 
-/// <summary>Compartilhamento de tela ativo numa sala. A mídia passa por <see cref="MediaContract.Path"/>.</summary>
-public sealed record ScreenShareDto(Guid UserId, int Width, int Height, int FrameRate, int BitrateKbps, bool HasAudio);
+/// <summary>Transmissão ativa numa sala (tela ou câmera). A mídia passa por <see cref="MediaContract.Path"/>.</summary>
+public sealed record ScreenShareDto(Guid UserId, int Width, int Height, int FrameRate, int BitrateKbps, bool HasAudio, ShareKind Kind = ShareKind.Screen);
 
 /// <summary>
 /// Limites do compartilhamento de tela. A largura acompanha a proporção da tela ou janela; a altura é a resolução
@@ -282,7 +320,10 @@ public static class GroupsHubContract
     /// <summary>Servidor → cliente (sem argumentos): amigos ou solicitações de amizade do usuário mudaram; recarregue as listas.</summary>
     public const string FriendsChanged = "FriendsChanged";
 
-    /// <summary>Cliente → servidor: <see cref="ScreenShareStart"/>; começa a compartilhar a tela na sala atual. Retorna o <see cref="ScreenShareDto"/> ou null.</summary>
+    /// <summary>
+    /// Cliente → servidor: <see cref="ScreenShareStart"/>; começa a transmitir (tela ou câmera) na sala atual. Retorna o
+    /// <see cref="ScreenShareDto"/> ou null (fora de sala, acima dos limites ou tipo que o grupo não aceita).
+    /// </summary>
     public const string StartScreenShare = "StartScreenShare";
 
     /// <summary>Cliente → servidor: encerra o compartilhamento de tela desta conexão.</summary>

@@ -38,6 +38,12 @@ public static class GroupEndpoints
             .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
             .Produces<ErrorResponse>(StatusCodes.Status404NotFound)
             .Produces<ErrorResponse>(StatusCodes.Status409Conflict);
+        groups.MapPut("/{groupId:guid}/settings", UpdateSettingsAsync)
+            .WithSummary("Muda o que o grupo aceita transmitir")
+            .WithDescription("Só quem criou o grupo pode. Define se a sala aceita compartilhamento de tela e câmera; as transmissões de um tipo desligado terminam na hora e todos os integrantes recebem GroupChanged.")
+            .Produces<GroupSettings>()
+            .Produces<ErrorResponse>(StatusCodes.Status403Forbidden)
+            .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
         groups.MapDelete("/{groupId:guid}/members/me", LeaveGroupAsync)
             .WithSummary("Sai do grupo")
             .WithDescription("O grupo é apagado quando o último integrante sai.")
@@ -59,11 +65,13 @@ public static class GroupEndpoints
             where m.UserId == me
             join g in db.Groups.AsNoTracking() on m.GroupId equals g.Id
             orderby g.Name
-            select new { g.Id, g.Name, Count = db.GroupMembers.Count(x => x.GroupId == g.Id) }).ToListAsync(cancellationToken);
+            select new { g.Id, g.Name, g.AllowScreenShare, g.AllowCamera, Count = db.GroupMembers.Count(x => x.GroupId == g.Id) }).ToListAsync(cancellationToken);
 
         var snapshots = await GroupQueries.PresenceAsync(db, presence.Snapshot(groups.Select(g => g.Id)), cancellationToken);
         return Results.Ok(groups.Select(g =>
-            new GroupDto(g.Id, g.Name, g.Count, snapshots[g.Id].ConnectedUsers, snapshots[g.Id].Version, snapshots[g.Id].ScreenShares)));
+            new GroupDto(
+                g.Id, g.Name, g.Count, snapshots[g.Id].ConnectedUsers, snapshots[g.Id].Version, snapshots[g.Id].ScreenShares,
+                new GroupSettings(g.AllowScreenShare ?? true, g.AllowCamera ?? true))));
     }
 
     private static async Task<IResult> CreateGroupAsync(
@@ -101,7 +109,7 @@ public static class GroupEndpoints
         await notifier.GroupChangedAsync(db, group.Id, cancellationToken);
 
         var snapshot = await GroupQueries.PresenceAsync(db, presence, group.Id, cancellationToken);
-        return Results.Created($"/groups/{group.Id}", new GroupDto(group.Id, group.Name, 1, snapshot.ConnectedUsers, snapshot.Version, snapshot.ScreenShares));
+        return Results.Created($"/groups/{group.Id}", new GroupDto(group.Id, group.Name, 1, snapshot.ConnectedUsers, snapshot.Version, snapshot.ScreenShares, group.Settings));
     }
 
     private static async Task<IResult> GetGroupAsync(Guid groupId, HttpContext context, AppDbContext db, GroupPresence presence, CancellationToken cancellationToken)
@@ -125,7 +133,51 @@ public static class GroupEndpoints
         var members = users
             .Select(u => new GroupMemberDto(u.Id, u.DiscordId, u.Username, u.GlobalName, u.Discriminator, u.AvatarHash, connected.Contains(u.Id), IsOwner: u.Id == group.CreatedById))
             .ToList();
-        return Results.Ok(new GroupDetailsDto(group.Id, group.Name, members, snapshot.Version, CanDelete: group.CreatedById == me));
+        return Results.Ok(new GroupDetailsDto(
+            group.Id, group.Name, members, snapshot.Version, CanDelete: group.CreatedById == me, Settings: group.Settings, CanEdit: group.CreatedById == me));
+    }
+
+    private static async Task<IResult> UpdateSettingsAsync(
+        Guid groupId,
+        GroupSettingsUpdate request,
+        HttpContext context,
+        AppDbContext db,
+        GroupPresence presence,
+        GroupNotifier notifier,
+        MediaRelay relay,
+        CancellationToken cancellationToken)
+    {
+        var me = context.User.GetUserId();
+        var group = await db.Groups.FirstOrDefaultAsync(g => g.Id == groupId, cancellationToken);
+        if (group is null || !await GroupQueries.IsMemberAsync(db, groupId, me, cancellationToken))
+        {
+            return GroupNotFound();
+        }
+
+        if (group.CreatedById != me)
+        {
+            return ApiResults.Error(StatusCodes.Status403Forbidden, "not_group_owner", "Só quem criou o grupo pode mudar as configurações dele.");
+        }
+
+        group.AllowScreenShare = request.AllowScreenShare;
+        group.AllowCamera = request.AllowCamera;
+        await db.SaveChangesAsync(cancellationToken);
+
+        // O que o grupo deixou de aceitar e já estava no ar termina agora.
+        var settings = request.ToSettings();
+        var stopped = presence.StopSharesNotAllowed(groupId, settings);
+        foreach (var sharer in stopped)
+        {
+            relay.Stop(groupId, sharer);
+        }
+
+        await notifier.GroupChangedAsync(db, groupId, cancellationToken);
+        if (stopped.Count > 0)
+        {
+            await notifier.PresenceChangedAsync(db, groupId, cancellationToken);
+        }
+
+        return Results.Ok(settings);
     }
 
     private static async Task<IResult> AddMemberAsync(

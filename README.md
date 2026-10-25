@@ -174,6 +174,7 @@ Todas as rotas, exceto `/health`, `/limits`, `/auth/discord`, `/telemetry/errors
 | `POST /groups/{groupId}/members` | Corpo `{ "userId": "<guid>" }`. Adiciona um amigo seu (limite de 10 integrantes). |
 | `DELETE /groups/{groupId}/members/me` | Sai do grupo; o grupo é apagado quando o último integrante sai. |
 | `DELETE /groups/{groupId}` | Exclui o grupo para todos (só quem criou; 403 `not_group_owner` para os outros). Todos saem da sala, os compartilhamentos terminam e cada integrante recebe `GroupRemoved`. `GET /groups/{groupId}` traz `canDelete`. |
+| `PUT /groups/{groupId}/settings` | Corpo `{ "allowScreenShare": true, "allowCamera": true }`. Só quem criou (403 `not_group_owner`). As transmissões do tipo desligado terminam e todos recebem `GroupChanged`. `GET /groups` e `GET /groups/{groupId}` trazem `settings` (e `canEdit` nos detalhes). Grupos criados antes da opção aceitam os dois (colunas nulas). |
 
 `relationship` é `None`, `Friend`, `PendingOutgoing` ou `PendingIncoming`. Erros retornam `{ "code": "...", "message": "..." }`.
 
@@ -201,7 +202,7 @@ O hub `/hubs/groups` mantém uma conexão persistente (WebSocket, com fallback a
 | `PresenceChanged(presence)` | API → app | `{ groupId, connectedUsers, version }`, enviado a todos os integrantes a cada entrada ou saída. |
 | `GroupChanged(group)` | API → app | Grupo criado ou com integrantes alterados (inclusive para quem acabou de ser adicionado). |
 | `GroupRemoved(groupId)` | API → app | Você saiu do grupo (avisa as suas outras janelas). |
-| `StartScreenShare(start)` | app → API | `{ width, height, frameRate, bitrateKbps, hasAudio }`. Começa a compartilhar na sala atual; retorna `{ userId, width, height, frameRate, bitrateKbps, hasAudio }`, ou `null` se a conexão não estiver numa sala ou a configuração passar dos limites de `GET /limits` (padrão: 720p a 60 fps ou 1080p a 30 fps, até 3000 kbps). |
+| `StartScreenShare(start)` | app → API | `{ width, height, frameRate, bitrateKbps, hasAudio, kind }` (`kind`: `Screen`, o padrão, ou `Camera`). Começa a transmitir na sala atual; retorna `{ userId, width, height, frameRate, bitrateKbps, hasAudio, kind }`, ou `null` se a conexão não estiver numa sala, o grupo não aceitar esse `kind` ou a configuração passar dos limites de `GET /limits` (padrão: 720p a 60 fps ou 1080p a 30 fps, até 3000 kbps). |
 | `StopScreenShare()` | app → API | Encerra o compartilhamento desta conexão. Sair da sala, trocar de sala ou desconectar também encerra. |
 
 A presença (`PresenceChanged` e os grupos de `GET /groups`) traz também `screenShares`: quem está compartilhando na sala e com que configuração.
