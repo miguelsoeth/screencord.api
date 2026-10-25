@@ -97,7 +97,7 @@ public sealed class GroupPresence
                 _shares.Remove(other);
             }
 
-            var share = new ScreenShareDto(current.UserId, start.Width, start.Height, start.FrameRate, start.BitrateKbps, start.HasAudio);
+            var share = new ScreenShareDto(current.UserId, start.Width, start.Height, start.FrameRate, start.BitrateKbps, start.HasAudio, start.Kind);
             _shares[connectionId] = share;
             _version++;
             return (current.GroupId, share);
@@ -144,6 +144,40 @@ public sealed class GroupPresence
             }
 
             return removed.Count > 0;
+        }
+    }
+
+    /// <summary>Sala em que a conexão está, ou null.</summary>
+    public Guid? GroupOf(string connectionId)
+    {
+        lock (_lock)
+        {
+            return _connections.TryGetValue(connectionId, out var current) ? current.GroupId : null;
+        }
+    }
+
+    /// <summary>
+    /// Encerra as transmissões de uma sala que o grupo deixou de aceitar (ex.: o dono desligou a câmera). Retorna
+    /// quem estava transmitindo, para fechar o canal de mídia de cada um.
+    /// </summary>
+    public IReadOnlyList<Guid> StopSharesNotAllowed(Guid groupId, GroupSettings settings)
+    {
+        lock (_lock)
+        {
+            var removed = _shares
+                .Where(s => !settings.Allows(s.Value.Kind) && _connections.TryGetValue(s.Key, out var c) && c.GroupId == groupId)
+                .ToList();
+            foreach (var share in removed)
+            {
+                _shares.Remove(share.Key);
+            }
+
+            if (removed.Count > 0)
+            {
+                _version++;
+            }
+
+            return removed.Select(s => s.Value.UserId).Distinct().ToList();
         }
     }
 

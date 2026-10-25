@@ -77,6 +77,15 @@ public sealed class Group
     public Guid CreatedById { get; set; }
 
     public DateTimeOffset CreatedAtUtc { get; set; }
+
+    /// <summary>O grupo aceita compartilhar a tela. Nulo (grupos criados antes da opção) vale como aceito: coluna nova num banco existente precisa aceitar nulo.</summary>
+    public bool? AllowScreenShare { get; set; }
+
+    /// <summary>O grupo aceita transmitir a câmera. Nulo vale como aceito.</summary>
+    public bool? AllowCamera { get; set; }
+
+    public ScreenCord.Contracts.GroupSettings Settings =>
+        new(AllowScreenShare ?? true, AllowCamera ?? true);
 }
 
 public sealed class GroupMember
@@ -154,6 +163,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<Group>(group =>
         {
             group.Property(g => g.Name).HasMaxLength(ScreenCord.Contracts.GroupsHubContract.MaxNameLength);
+            group.Ignore(g => g.Settings);
         });
 
         modelBuilder.Entity<GroupMember>(member =>

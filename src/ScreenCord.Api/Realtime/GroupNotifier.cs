@@ -49,7 +49,7 @@ public static class GroupQueries
     {
         var group = await db.Groups.AsNoTracking()
             .Where(g => g.Id == groupId)
-            .Select(g => new { g.Id, g.Name, Count = db.GroupMembers.Count(m => m.GroupId == g.Id) })
+            .Select(g => new { g.Id, g.Name, g.AllowScreenShare, g.AllowCamera, Count = db.GroupMembers.Count(m => m.GroupId == g.Id) })
             .FirstOrDefaultAsync(cancellationToken);
         if (group is null)
         {
@@ -57,7 +57,21 @@ public static class GroupQueries
         }
 
         var snapshot = await PresenceAsync(db, presence, group.Id, cancellationToken);
-        return new GroupDto(group.Id, group.Name, group.Count, snapshot.ConnectedUsers, snapshot.Version, snapshot.ScreenShares);
+        return new GroupDto(
+            group.Id, group.Name, group.Count, snapshot.ConnectedUsers, snapshot.Version, snapshot.ScreenShares,
+            new GroupSettings(group.AllowScreenShare ?? true, group.AllowCamera ?? true));
+    }
+
+    /// <summary>O que o grupo aceita transmitir; grupo que não existe não aceita nada.</summary>
+    public static async Task<GroupSettings> SettingsAsync(AppDbContext db, Guid groupId, CancellationToken cancellationToken)
+    {
+        var flags = await db.Groups.AsNoTracking()
+            .Where(g => g.Id == groupId)
+            .Select(g => new { g.AllowScreenShare, g.AllowCamera })
+            .FirstOrDefaultAsync(cancellationToken);
+        return flags is null
+            ? new GroupSettings(false, false)
+            : new GroupSettings(flags.AllowScreenShare ?? true, flags.AllowCamera ?? true);
     }
 
     public static async Task<GroupPresenceDto> PresenceAsync(AppDbContext db, GroupPresence presence, Guid groupId, CancellationToken cancellationToken) =>

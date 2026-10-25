@@ -65,7 +65,14 @@ public sealed class GroupsHub(
     /// </summary>
     public async Task<ScreenShareDto?> StartScreenShare(ScreenShareStart start)
     {
-        if (!ScreenShareLimits.IsValid(start, relayLimits.Current) || presence.StartShare(Context.ConnectionId, start) is not { } started)
+        if (!ScreenShareLimits.IsValid(start, relayLimits.Current) || !Enum.IsDefined(start.Kind) || presence.GroupOf(Context.ConnectionId) is not { } roomId)
+        {
+            return null;
+        }
+
+        // O dono do grupo decide se a sala aceita tela e câmera.
+        if (!(await GroupQueries.SettingsAsync(db, roomId, Context.ConnectionAborted)).Allows(start.Kind) ||
+            presence.StartShare(Context.ConnectionId, start) is not { } started)
         {
             return null;
         }

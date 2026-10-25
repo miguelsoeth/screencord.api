@@ -151,6 +151,91 @@ public sealed class ScreenShareTests : IAsyncLifetime
         await bruno.NextPresenceAsync(p => p.ScreenShares is { Count: 0 });
     }
 
+    private Task<HttpResponseMessage> SetSettingsAsync(HttpClient client, bool screen, bool camera) =>
+        client.PutAsJsonAsync($"/groups/{_group.Id}/settings", new GroupSettingsUpdate(screen, camera));
+
+    [Fact]
+    public async Task GrupoNovo_AceitaTelaECamera()
+    {
+        Assert.Equal(GroupSettings.Default, _group.Settings);
+        var details = (await _bruno.GetFromJsonAsync<GroupDetailsDto>($"/groups/{_group.Id}"))!;
+        Assert.Equal(GroupSettings.Default, details.Settings);
+        Assert.False(details.CanEdit);
+        Assert.True((await _ana.GetFromJsonAsync<GroupDetailsDto>($"/groups/{_group.Id}"))!.CanEdit);
+    }
+
+    [Fact]
+    public async Task Camera_AnunciadaComOTipo()
+    {
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+
+        var share = await ana.StartAsync(Hd with { Kind = ShareKind.Camera, HasAudio = false });
+
+        Assert.Equal(ShareKind.Camera, share!.Kind);
+        var announced = await bruno.NextPresenceAsync(p => p.ScreenShares?.Count == 1);
+        Assert.Equal(ShareKind.Camera, announced.ScreenShares![0].Kind);
+    }
+
+    [Fact]
+    public async Task Camera_GrupoSemCamera_RetornaNull()
+    {
+        (await SetSettingsAsync(_ana, screen: true, camera: false)).EnsureSuccessStatusCode();
+        var ana = await ConnectHubAsync(_ana);
+        await ana.JoinAsync(_group.Id);
+
+        Assert.Null(await ana.StartAsync(Hd with { Kind = ShareKind.Camera }));
+        Assert.NotNull(await ana.StartAsync(Hd));
+    }
+
+    [Fact]
+    public async Task Tela_GrupoSemTela_RetornaNull()
+    {
+        (await SetSettingsAsync(_ana, screen: false, camera: true)).EnsureSuccessStatusCode();
+        var ana = await ConnectHubAsync(_ana);
+        await ana.JoinAsync(_group.Id);
+
+        Assert.Null(await ana.StartAsync(Hd));
+        Assert.NotNull(await ana.StartAsync(Hd with { Kind = ShareKind.Camera }));
+    }
+
+    [Fact]
+    public async Task Configuracoes_SoOCriadorMuda()
+    {
+        var response = await SetSettingsAsync(_bruno, screen: false, camera: false);
+
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(GroupSettings.Default, (await _ana.GetFromJsonAsync<GroupDetailsDto>($"/groups/{_group.Id}"))!.Settings);
+    }
+
+    [Fact]
+    public async Task Configuracoes_GrupoDeOutraPessoa_Retorna404()
+    {
+        var (carla, _) = await _factory.LoginAsync("token-carla");
+
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await SetSettingsAsync(carla, true, true)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Configuracoes_DesligarOTipoEmUso_EncerraATransmissaoEAvisaOGrupo()
+    {
+        var ana = await ConnectHubAsync(_ana);
+        var bruno = await ConnectHubAsync(_bruno);
+        await ana.JoinAsync(_group.Id);
+        await bruno.JoinAsync(_group.Id);
+        await ana.StartAsync(Hd with { Kind = ShareKind.Camera });
+        await bruno.NextPresenceAsync(p => p.ScreenShares?.Count == 1);
+        var changed = new TaskCompletionSource<GroupDto>();
+        bruno.Connection.On<GroupDto>(GroupsHubContract.GroupChanged, g => changed.TrySetResult(g));
+
+        (await SetSettingsAsync(_ana, screen: true, camera: false)).EnsureSuccessStatusCode();
+
+        await bruno.NextPresenceAsync(p => p.ScreenShares is { Count: 0 });
+        Assert.Equal(new GroupSettings(true, false), (await changed.Task.WaitAsync(Timeout)).Settings);
+    }
+
     [Fact]
     public async Task Midia_ChegaAQuemAssiste_ComecandoPorUmQuadroChave()
     {
