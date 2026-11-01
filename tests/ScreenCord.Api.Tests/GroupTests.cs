@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Threading.Channels;
+using ScreenCord.Api.Auth;
 using ScreenCord.Contracts;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -464,5 +465,47 @@ public sealed class GroupTests : IAsyncLifetime
         var members = (await _bruno.GetFromJsonAsync<GroupDetailsDto>($"/groups/{group.Id}"))!.Members;
         Assert.True(Assert.Single(members, m => m.Id == _anaUser.Id).IsOwner);
         Assert.False(Assert.Single(members, m => m.Id == _brunoUser.Id).IsOwner);
+    }
+
+    [Fact]
+    public async Task AtualizarComODiscord_NomeNovo_ChegaAosAmigosEAosGrupos()
+    {
+        await MakeFriendsAsync(_ana, _anaUser, _bruno, _brunoUser);
+        var group = await CreateGroupAsync(_ana);
+        (await AddMemberAsync(_ana, group.Id, _brunoUser)).EnsureSuccessStatusCode();
+        var ana = await ConnectAsync(_ana);
+        var bruno = await ConnectAsync(_bruno);
+        await ana.JoinAsync(group.Id);
+        await bruno.NextPresenceAsync(group.Id, p => p.ConnectedUserIds.Contains(_anaUser.Id));
+        _factory.Discord.Accounts["token-ana"] = new DiscordIdentity("1001", "ana.nova", "Ana Nova", "0", "abc");
+
+        var response = await _ana.PostAsJsonAsync("/me/discord", new DiscordLoginRequest("token-ana"));
+
+        response.EnsureSuccessStatusCode();
+        var updated = await response.Content.ReadFromJsonAsync<UserDto>();
+        Assert.Equal("Ana Nova", updated!.GlobalName);
+        Assert.Equal("abc", updated.AvatarHash);
+        await bruno.NextFriendsChangedAsync();
+        var presence = await bruno.NextPresenceAsync(group.Id, p => p.ConnectedUsers.Any(u => u.Id == _anaUser.Id && u.GlobalName == "Ana Nova"));
+        Assert.Contains(_anaUser.Id, presence.ConnectedUserIds);
+        Assert.Equal("Ana Nova", (await _ana.GetFromJsonAsync<UserDto>("/me"))!.GlobalName);
+    }
+
+    [Fact]
+    public async Task AtualizarComODiscord_TokenDeOutraConta_Recusa()
+    {
+        var response = await _ana.PostAsJsonAsync("/me/discord", new DiscordLoginRequest("token-bruno"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AtualizarComODiscord_SemSessao_Recusa()
+    {
+        using var anonymous = _factory.CreateClient();
+
+        var response = await anonymous.PostAsJsonAsync("/me/discord", new DiscordLoginRequest("token-ana"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 }
