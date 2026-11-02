@@ -1,6 +1,8 @@
 using System.Text.Json;
 using ScreenCord.Api.Data;
+using ScreenCord.Api.Realtime;
 using ScreenCord.Contracts;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -164,7 +166,7 @@ public static class LimitsEndpoints
     {
         admin.MapGet("/limits", (RelayLimitsStore limits) => Results.Ok(View(limits)));
 
-        admin.MapPut("/limits", async (RelayLimitsUpdate? update, RelayLimitsStore limits, AppDbContext db, CancellationToken cancellationToken) =>
+        admin.MapPut("/limits", async (RelayLimitsUpdate? update, RelayLimitsStore limits, AppDbContext db, IHubContext<GroupsHub> hub, CancellationToken cancellationToken) =>
         {
             if (update is null || RelayLimitsStore.Build(update.Profiles, update.MaxBitrateKbps) is not { } built)
             {
@@ -172,15 +174,21 @@ public static class LimitsEndpoints
             }
 
             await limits.SaveAsync(db, built, cancellationToken);
+            await NotifyAsync(hub, limits, cancellationToken);
             return Results.Ok(View(limits));
         });
 
-        admin.MapDelete("/limits", async (RelayLimitsStore limits, AppDbContext db, CancellationToken cancellationToken) =>
+        admin.MapDelete("/limits", async (RelayLimitsStore limits, AppDbContext db, IHubContext<GroupsHub> hub, CancellationToken cancellationToken) =>
         {
             await limits.ResetAsync(db, cancellationToken);
+            await NotifyAsync(hub, limits, cancellationToken);
             return Results.Ok(View(limits));
         });
     }
+
+    /// <summary>Os aplicativos abertos passam a oferecer os limites novos sem precisar reiniciar.</summary>
+    private static Task NotifyAsync(IHubContext<GroupsHub> hub, RelayLimitsStore limits, CancellationToken cancellationToken) =>
+        hub.Clients.All.SendAsync(GroupsHubContract.LimitsChanged, new ServerLimitsDto(limits.Current), cancellationToken);
 
     private static RelayLimitsView View(RelayLimitsStore limits) => new(
         limits.Current,

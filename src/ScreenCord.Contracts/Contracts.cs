@@ -337,6 +337,9 @@ public static class GroupsHubContract
     /// <summary>Servidor → cliente (sem argumentos): amigos ou solicitações de amizade do usuário mudaram; recarregue as listas.</summary>
     public const string FriendsChanged = "FriendsChanged";
 
+    /// <summary>Servidor → cliente: <see cref="ServerLimitsDto"/> com os limites novos, depois de uma mudança no painel.</summary>
+    public const string LimitsChanged = "LimitsChanged";
+
     /// <summary>
     /// Cliente → servidor: <see cref="ScreenShareStart"/>; começa a transmitir (tela ou câmera) na sala atual. Retorna o
     /// <see cref="ScreenShareDto"/> ou null (fora de sala, acima dos limites ou tipo que o grupo não aceita).

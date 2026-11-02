@@ -163,6 +163,28 @@ public sealed class LimitsTests
     }
 
     [Fact]
+    public async Task Painel_MudouOsLimites_AvisaOsAplicativosAbertos()
+    {
+        using var factory = AdminFactory();
+        var admin = Admin(factory);
+        var (ana, _) = await factory.LoginAsync("token-ana");
+        await using var hub = await ConnectAsync(factory, ana);
+        var received = System.Threading.Channels.Channel.CreateUnbounded<ServerLimitsDto>();
+        hub.On<ServerLimitsDto>(GroupsHubContract.LimitsChanged, limits => received.Writer.TryWrite(limits));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        await admin.PutAsJsonAsync("/admin/api/limits", new RelayLimitsUpdate([new StreamProfile(1080, 60)], 5000));
+        var changed = await received.Reader.ReadAsync(timeout.Token);
+
+        Assert.Equal([new StreamProfile(1080, 60)], changed.Relay.Profiles);
+        Assert.Equal(5000, changed.Relay.MaxBitrateKbps);
+
+        await admin.DeleteAsync("/admin/api/limits");
+
+        Assert.Equal(StreamLimits.Relay, (await received.Reader.ReadAsync(timeout.Token)).Relay);
+    }
+
+    [Fact]
     public async Task Painel_RecusaLimitesQueOAppNaoSabeFazer()
     {
         using var factory = AdminFactory();

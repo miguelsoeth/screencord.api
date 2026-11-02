@@ -1,5 +1,6 @@
 using ScreenCord.Api.Auth;
 using ScreenCord.Api.Data;
+using ScreenCord.Api.Realtime;
 using ScreenCord.Contracts;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,6 +32,17 @@ public static class AuthEndpoints
             .RequireAuthorization()
             .WithSummary("Usuário da sessão")
             .Produces<UserDto>();
+
+        auth.MapPost("/me/discord", SyncWithDiscordAsync)
+            .RequireAuthorization()
+            .RequireRateLimiting(LoginRateLimitPolicy)
+            .WithSummary("Atualiza nome e foto com o Discord")
+            .WithDescription("Confirma o token com o Discord, grava o nome e a foto atuais e, se mudaram, avisa amigos e grupos da pessoa.")
+            .Produces<UserDto>()
+            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
+            .Produces<ErrorResponse>(StatusCodes.Status403Forbidden)
+            .Produces<ErrorResponse>(StatusCodes.Status503ServiceUnavailable);
     }
 
     /// <summary>
@@ -62,15 +74,7 @@ public static class AuthEndpoints
         {
             // O token nunca é registrado; só o motivo da recusa.
             logger.LogWarning("Login recusado: {Failure}.", ex.Failure);
-            return ex.Failure switch
-            {
-                DiscordVerificationFailure.InvalidToken => ApiResults.Error(
-                    StatusCodes.Status401Unauthorized, "invalid_discord_token", "O Discord não confirmou este login. Conecte sua conta novamente."),
-                DiscordVerificationFailure.NotConfigured => ApiResults.Error(
-                    StatusCodes.Status500InternalServerError, "server_not_configured", "O servidor não está configurado com o Client ID do Discord."),
-                _ => ApiResults.Error(
-                    StatusCodes.Status503ServiceUnavailable, "discord_unavailable", "Não foi possível confirmar o login com o Discord agora. Tente novamente."),
-            };
+            return VerificationError(ex.Failure);
         }
 
         var now = time.GetUtcNow();
@@ -88,10 +92,7 @@ public static class AuthEndpoints
             logger.LogInformation("Usuário criado para a conta do Discord {DiscordId}.", identity.Id);
         }
 
-        user.Username = identity.Username;
-        user.GlobalName = identity.GlobalName;
-        user.Discriminator = identity.Discriminator;
-        user.AvatarHash = identity.AvatarHash;
+        ApplyIdentity(user, identity);
         user.LastLoginAtUtc = now;
 
         var lifetimeDays = Math.Clamp(configuration.GetValue("Session:LifetimeDays", 30), 1, 365);
@@ -139,4 +140,87 @@ public static class AuthEndpoints
             ? ApiResults.Error(StatusCodes.Status401Unauthorized, "unauthorized", "Sessão inválida.")
             : Results.Ok(user.ToDto(RelationshipStatus.None));
     }
+
+    /// <summary>
+    /// Traz o nome e a foto do Discord sem abrir outra sessão. Só quem está conectado à conta pode: o token precisa ser
+    /// da mesma conta do Discord que a sessão. Se algo mudou, a presença nos grupos e as listas de amigos se atualizam.
+    /// </summary>
+    private static async Task<IResult> SyncWithDiscordAsync(
+        DiscordLoginRequest request,
+        HttpContext context,
+        IDiscordTokenVerifier verifier,
+        AppDbContext db,
+        GroupNotifier groups,
+        FriendNotifier friends,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.AccessToken) || request.AccessToken.Length > 512)
+        {
+            return ApiResults.Error(StatusCodes.Status400BadRequest, "invalid_request", "Token do Discord ausente ou inválido.");
+        }
+
+        DiscordIdentity identity;
+        try
+        {
+            identity = await verifier.VerifyAsync(request.AccessToken, cancellationToken);
+        }
+        catch (DiscordVerificationException ex)
+        {
+            loggerFactory.CreateLogger("Auth").LogWarning("Atualização do perfil recusada: {Failure}.", ex.Failure);
+            return VerificationError(ex.Failure);
+        }
+
+        var me = context.User.GetUserId();
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == me, cancellationToken);
+        if (user is null)
+        {
+            return ApiResults.Error(StatusCodes.Status401Unauthorized, "unauthorized", "Sessão inválida.");
+        }
+
+        if (user.DiscordId != identity.Id)
+        {
+            return ApiResults.Error(StatusCodes.Status403Forbidden, "discord_account_mismatch", "Este token é de outra conta do Discord.");
+        }
+
+        var changed = user.Username != identity.Username || user.GlobalName != identity.GlobalName ||
+            user.Discriminator != identity.Discriminator || user.AvatarHash != identity.AvatarHash;
+        if (changed)
+        {
+            ApplyIdentity(user, identity);
+            await db.SaveChangesAsync(cancellationToken);
+
+            var memberOf = await db.GroupMembers.AsNoTracking().Where(m => m.UserId == me).Select(m => m.GroupId).ToListAsync(cancellationToken);
+            foreach (var groupId in memberOf)
+            {
+                await groups.PresenceChangedAsync(db, groupId, cancellationToken);
+            }
+
+            var related = await db.Friendships.AsNoTracking()
+                .Where(f => f.UserLowId == me || f.UserHighId == me)
+                .Select(f => f.UserLowId == me ? f.UserHighId : f.UserLowId)
+                .ToListAsync(cancellationToken);
+            await friends.ProfileChangedAsync(related, cancellationToken);
+        }
+
+        return Results.Ok(user.ToDto(RelationshipStatus.None));
+    }
+
+    private static void ApplyIdentity(User user, DiscordIdentity identity)
+    {
+        user.Username = identity.Username;
+        user.GlobalName = identity.GlobalName;
+        user.Discriminator = identity.Discriminator;
+        user.AvatarHash = identity.AvatarHash;
+    }
+
+    private static IResult VerificationError(DiscordVerificationFailure failure) => failure switch
+    {
+        DiscordVerificationFailure.InvalidToken => ApiResults.Error(
+            StatusCodes.Status401Unauthorized, "invalid_discord_token", "O Discord não confirmou este login. Conecte sua conta novamente."),
+        DiscordVerificationFailure.NotConfigured => ApiResults.Error(
+            StatusCodes.Status500InternalServerError, "server_not_configured", "O servidor não está configurado com o Client ID do Discord."),
+        _ => ApiResults.Error(
+            StatusCodes.Status503ServiceUnavailable, "discord_unavailable", "Não foi possível confirmar o login com o Discord agora. Tente novamente."),
+    };
 }
