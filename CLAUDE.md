@@ -27,13 +27,11 @@ dotnet run --project src/ScreenCord.Api # http://localhost:5080, Swagger em /swa
 - Mensagens no padrão Conventional Commits, em português: `feat: convites para grupos`, `fix: token expirado não renovava`, `chore: ...`, `docs: ...`, `refactor: ...`, `test: ...`. Mudança que quebra o contrato com o app: `feat!:` e explique no corpo.
 - Nunca commite segredos. Configuração de produção fica só no VPS, em `/srv/screencord/api.env`. `appsettings.Local.json` é configuração local e não vai para a imagem (está no `.dockerignore`).
 
-## Versionamento (SemVer por tag)
+## Versionamento (CalVer por tag)
 
-- A versão vem da tag git `vMAJOR.MINOR.PATCH`. Não edite a versão no `.csproj` (lá fica `0.0.0-dev`, usada só no desenvolvimento). O CI passa `-p:Version=` com a versão da tag.
-- **MAJOR**: quebra de contrato com o app (remover ou renomear campo, endpoint ou método do hub; mudar semântica). Enquanto estiver em `0.x`, quebras sobem o MINOR.
-- **MINOR**: funcionalidade nova compatível (endpoint novo, campo opcional novo).
-- **PATCH**: correção sem mudança de contrato.
-- A versão em produção aparece em `GET /health` → `{"status":"ok","version":"0.2.0","minClientVersion":"0.1.0"}`.
+- A versão vem da tag git `vAAAA.M.N` (CalVer): ano, mês **sem zero à esquerda** e um contador `N` que cresce dentro do mês e volta a 0 no mês seguinte. Ex.: `v2026.11.0`, `v2026.11.1`, `v2026.12.0`. Não edite a versão no `.csproj` (lá fica `0.0.0-dev`, usada só no desenvolvimento). O CI passa `-p:Version=` com a versão da tag.
+- O número é só um identificador de deploy e de rollback: **não diz nada sobre compatibilidade**. O contrato com o app é o `Clients:MinVersion` (SemVer do app), e só ele é comparado com a versão do app. Nada interpreta a versão da API como SemVer (o app só lê o `minClientVersion` do `/health`).
+- A versão em produção aparece em `GET /health` → `{"status":"ok","version":"2026.11.0","minClientVersion":"1.0.0"}`.
 
 ## Versões do app atendidas
 
@@ -41,15 +39,15 @@ dotnet run --project src/ScreenCord.Api # http://localhost:5080, Swagger em /swa
 - Sem o cabeçalho conta como `0.1.0` (a única versão publicada sem ele). `0.0.0-dev` (app rodando do código) é sempre aceito. Cabeçalho mal formado: 400.
 - Para atender versões diferentes de forma diferente, use `HttpContext.GetClientVersion()` (null para build de desenvolvimento).
 - Regra: a API atende todas as versões do app a partir da mínima. Prefira mudanças compatíveis (campos opcionais, endpoints e métodos do hub novos, sem remover os antigos). Quebra: primeiro aceite o formato antigo e o novo; depois que o app novo sair e os usuários se atualizarem, suba `Clients:MinVersion` e remova o antigo. Se não houver como aceitar os dois, suba a mínima na mesma release da mudança e publique o app logo depois. O passo a passo está no `CLAUDE.md` do app.
-- Subir `Clients:MinVersion` muda o contrato: é release da API (MINOR enquanto em `0.x`). Em emergência dá para sobrescrever sem release com `Clients__MinVersion=...` no `api.env` do VPS e `docker compose up -d api`, mas depois leve o valor para o `appsettings.json` e tire do `api.env`.
+- Subir `Clients:MinVersion` muda o contrato: é uma release da API como outra qualquer (nova tag CalVer). Cuidado com o rollback: ele é um redeploy da imagem antiga e **devolve também o `MinVersion` que ela trazia**, então voltar para uma tag anterior pode readmitir apps que a versão atual recusava. Em emergência dá para sobrescrever sem release com `Clients__MinVersion=...` no `api.env` do VPS e `docker compose up -d api`, mas depois leve o valor para o `appsettings.json` e tire do `api.env`.
 
 ## Release e deploy
 
 Para lançar uma versão, a partir da `main` atualizada e com os testes passando:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v2026.11.0
+git push origin v2026.11.0
 ```
 
 O `release.yml` então:
@@ -61,7 +59,7 @@ O `release.yml` então:
 
 O `deploy.sh` faz backup do SQLite, troca a imagem, espera o `/health` responder com a versão nova e, se não responder em ~60 s, **volta sozinho para a versão anterior** e falha o workflow.
 
-**Rollback ou redeploy manual:** GitHub → Actions → Deploy → Run workflow, informando uma versão já publicada (ex.: `0.1.0`). Ou pela linha de comando: `gh workflow run deploy.yml -f version=0.1.0`.
+**Rollback ou redeploy manual:** GitHub → Actions → Deploy → Run workflow, informando uma versão já publicada (ex.: `2026.11.0`). Ou pela linha de comando: `gh workflow run deploy.yml -f version=2026.11.0`. Rollback também devolve o `Clients:MinVersion` da imagem antiga (ver "Versões do app atendidas") e o esquema do banco não volta junto: por isso as mudanças de esquema precisam ser compatíveis com a versão anterior (ver "Cuidados").
 
 Não crie tags para testar o pipeline: cada tag gera release, imagem e deploy em produção.
 
@@ -84,14 +82,14 @@ Comandos úteis no servidor (como `deploy`, em `/srv/screencord`):
 docker compose ps
 docker compose logs -f api
 curl -s http://127.0.0.1:8080/health
-./deploy.sh 0.1.0   # deploy manual de uma versão já publicada no GHCR (exige docker login ghcr.io)
+./deploy.sh 2026.11.0   # deploy manual de uma versão já publicada no GHCR (exige docker login ghcr.io)
 ```
 
 Restaurar um backup: `docker compose stop api`, apague `data/screencord.db-wal` e `data/screencord.db-shm`, copie o arquivo de `backups/` para `data/screencord.db` (como `deploy`) e `docker compose start api`.
 
 ## Cuidados
 
-- O esquema do banco é criado por `DatabaseSchema.Ensure` (`EnsureCreated` + criação das tabelas e índices que faltam). Isso só cobre mudanças **aditivas**. Alterar ou remover colunas exige adotar EF Core Migrations antes; não faça isso sem planejar a migração dos dados de produção.
+- O esquema do banco é criado por `DatabaseSchema.Ensure` (`EnsureCreated` + criação das tabelas e índices que faltam). Isso só cobre mudanças **aditivas**. Alterar ou remover colunas exige adotar EF Core Migrations antes; não faça isso sem planejar a migração dos dados de produção. Regra de compatibilidade: toda mudança de esquema (e de migração, quando existirem) precisa ser compatível com a versão anterior da API, para o rollback funcionar sem restaurar o banco: só adicione (tabela, coluna anulável ou com padrão, índice) e deixe o código antigo ignorar o novo. Remover ou renomear vira duas releases: primeiro o código deixa de usar, na release seguinte o esquema perde.
 - A presença dos grupos fica em memória: a API roda com uma instância só. Todo deploy derruba as conexões SignalR e de mídia por alguns segundos; o app reconecta.
 - O app recusa `http` fora de localhost; a URL de produção do app é `https://api.screencord.miguelsoeth.online`.
 - Limites do compartilhamento (`RelayLimitsStore`): ficam em memória (uma instância da API), carregados do banco na inicialização e gravados pelo painel. `StreamLimits.Profiles` é aditivo: apps antigos só leem `MaxHeight`/`MaxFrameRate` (o maior de cada) e podem oferecer uma combinação que a API recusa; o `StartScreenShare` é quem decide. Mudou o formato de `StreamLimits`? Trate como mudança de contrato.

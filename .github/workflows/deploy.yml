@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Versão já publicada (ex.: 0.2.0)"
+        description: "Versão já publicada (ex.: 2026.11.0)"
         type: string
         required: true
 

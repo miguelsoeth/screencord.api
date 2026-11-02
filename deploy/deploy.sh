@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sobe uma versão da API no VPS. Uso: deploy.sh 0.2.0
+# Sobe uma versão da API no VPS. Uso: deploy.sh 2026.11.0
 # Roda em /srv/screencord, chamado pelo workflow de deploy (ou à mão, como usuário deploy).
 # Faz backup do banco, troca a imagem, espera o /health responder com a versão nova e,
 # se não responder, volta para a versão anterior.
