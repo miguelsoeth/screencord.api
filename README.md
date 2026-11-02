@@ -131,9 +131,11 @@ Distribua `ScreenCord.exe` com `appsettings.json` contendo o `Discord:ClientId` 
 API: a produção roda em `https://api.screencord.miguelsoeth.online` (Docker + Caddy no VPS) e o deploy é automático ao criar uma tag de versão:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v2026.11.0
+git push origin v2026.11.0
 ```
+
+A versão da API é CalVer (`AAAA.M.N`, mês sem zero à esquerda): é só um identificador de deploy e de rollback. Quem define quais apps são aceitos é o `Clients:MinVersion`.
 
 O processo completo (versionamento, workflows, VPS, rollback e backups) está em [CLAUDE.md](CLAUDE.md).
 
