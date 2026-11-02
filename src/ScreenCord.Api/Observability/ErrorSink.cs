@@ -10,6 +10,9 @@ public sealed class ObservabilityOptions
 {
     public const string SectionName = "Observability";
 
+    /// <summary>Tamanho mínimo do token do painel fora do desenvolvimento (<c>openssl rand -hex 32</c> tem 64).</summary>
+    public const int MinDashboardTokenLength = 32;
+
     /// <summary>Token do painel (<c>/admin</c>). Vazio desliga o painel. Em produção fica no <c>api.env</c>.</summary>
     public string DashboardToken { get; set; } = "";
 

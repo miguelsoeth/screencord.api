@@ -25,12 +25,31 @@ public static class ObservabilitySetup
     public static IServiceCollection AddScreenCordObservability(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<ObservabilityOptions>(configuration.GetSection(ObservabilityOptions.SectionName));
+        services.AddSingleton<AdminAuthGuard>();
         services.AddSingleton<RequestMetrics>();
         services.AddSingleton<ActiveUsers>();
         services.AddSingleton<ErrorSink>();
         services.AddHostedService(sp => sp.GetRequiredService<ErrorSink>());
         services.AddSingleton<ILoggerProvider, ErrorLogProvider>();
         return services;
+    }
+
+    /// <summary>
+    /// O token do painel dá acesso aos erros e aos limites do servidor: fora do desenvolvimento e dos testes, um token
+    /// curto impede a API de subir (gere com <c>openssl rand -hex 32</c>). Vazio deixa o painel desligado.
+    /// </summary>
+    public static void EnsureStrongDashboardToken(string? token, IHostEnvironment environment)
+    {
+        if (string.IsNullOrEmpty(token) || environment.IsDevelopment() || environment.IsEnvironment("Testing"))
+        {
+            return;
+        }
+
+        if (token.Length < ObservabilityOptions.MinDashboardTokenLength)
+        {
+            throw new InvalidOperationException(
+                $"Observability:DashboardToken precisa ter pelo menos {ObservabilityOptions.MinDashboardTokenLength} caracteres (gere com: openssl rand -hex 32).");
+        }
     }
 
     /// <summary>Relatórios de erro do aplicativo chegam sem login: limite mais apertado, por IP.</summary>

@@ -57,10 +57,28 @@ public static class ObservabilityEndpoints
                 return Results.NotFound();
             }
 
+            var guard = context.HttpContext.RequestServices.GetRequiredService<AdminAuthGuard>();
+            var address = context.HttpContext.Connection.RemoteIpAddress ?? System.Net.IPAddress.None;
+            if (guard.IsBlocked(address))
+            {
+                return ApiResults.Error(StatusCodes.Status429TooManyRequests, "too_many_attempts", "Tentativas demais com token inválido. Tente novamente mais tarde.");
+            }
+
             var given = context.HttpContext.Request.Headers[TokenHeader].ToString();
-            return CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(given)), SHA256.HashData(Encoding.UTF8.GetBytes(expected)))
-                ? await next(context)
-                : ApiResults.Error(StatusCodes.Status401Unauthorized, "invalid_admin_token", "Token do painel inválido.");
+            if (CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(given)), SHA256.HashData(Encoding.UTF8.GetBytes(expected))))
+            {
+                guard.RecordSuccess(address);
+                return await next(context);
+            }
+
+            // Sem cabeçalho não é palpite (o painel ainda sem token): só o que foi enviado conta como tentativa.
+            if (given.Length > 0 && guard.RecordFailure(address))
+            {
+                context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Admin")
+                    .LogInformation("Endereço bloqueado por {Minutes} min depois de tentativas com token do painel inválido.", AdminAuthGuard.BlockDuration.TotalMinutes);
+            }
+
+            return ApiResults.Error(StatusCodes.Status401Unauthorized, "invalid_admin_token", "Token do painel inválido.");
         });
 
         api.MapGet("/summary", SummaryAsync);
