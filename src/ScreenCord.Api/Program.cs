@@ -92,6 +92,8 @@ var minClientVersion = ClientVersionGate.ParseMinVersion(
 
 var app = builder.Build();
 
+ObservabilitySetup.EnsureStrongDashboardToken(app.Configuration["Observability:DashboardToken"], app.Environment);
+
 if (behindProxy)
 {
     app.UseForwardedHeaders();
