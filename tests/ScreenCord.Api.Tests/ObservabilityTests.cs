@@ -251,6 +251,8 @@ public sealed class ObservabilityTests : IDisposable
             Assert.Equal(1, db.UserActivities.Count(a => a.UserId == anaUser.Id && a.Day == today));
             db.UserActivities.Add(new UserActivity { UserId = anaUser.Id, Day = today.AddDays(-3) });
             db.UserActivities.Add(new UserActivity { UserId = Guid.NewGuid(), Day = today.AddDays(-10) });
+            var longAgo = DateTimeOffset.UtcNow.AddDays(-45);
+            db.Users.Add(new User { Id = Guid.NewGuid(), DiscordId = "999", Username = "antiga", CreatedAtUtc = longAgo, LastLoginAtUtc = longAgo });
             await db.SaveChangesAsync();
         }
 
@@ -259,7 +261,8 @@ public sealed class ObservabilityTests : IDisposable
         Assert.Equal(2, active.GetProperty("today").GetInt32());
         Assert.Equal(2, active.GetProperty("last7Days").GetInt32());
         Assert.Equal(3, active.GetProperty("last30Days").GetInt32());
-        Assert.Equal(2, active.GetProperty("accounts").GetInt32());
+        Assert.Equal(3, active.GetProperty("accounts").GetInt32());
+        Assert.Equal(2, active.GetProperty("newAccountsLast30Days").GetInt32());
         var daily = active.GetProperty("daily").EnumerateArray().ToList();
         Assert.Equal(3, daily.Count);
         Assert.Equal(today.ToString("yyyy-MM-dd"), daily[^1].GetProperty("day").GetString());

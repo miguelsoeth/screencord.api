@@ -93,7 +93,7 @@
     <div class="tiles" id="tiles"></div>
 
     <section>
-      <h2>Usuários ativos por dia <span class="muted" style="font-weight:400;font-size:12px">contas que usaram a API no dia (UTC), últimos 30 dias</span></h2>
+      <h2>Usuários <span class="muted" style="font-weight:400;font-size:12px">contas no banco e ativas por dia (que usaram a API no dia, UTC), últimos 30 dias</span></h2>
       <div class="tiles" id="active-tiles"></div>
       <div class="chart" style="margin-top:12px"><svg id="chart-active" role="img" aria-label="Usuários ativos por dia"></svg></div>
     </section>
@@ -249,6 +249,7 @@
     const a = s.activeUsers;
     const ofAccounts = `de ${nf.format(a.accounts)} contas`;
     $("active-tiles").replaceChildren(
+      tile("Usuários cadastrados", nf.format(a.accounts), `${nf.format(a.newAccountsLast30Days)} novos em 30 dias`),
       tile("Hoje", nf.format(a.today), ofAccounts),
       tile("Últimos 7 dias", nf.format(a.last7Days), ofAccounts),
       tile("Últimos 30 dias", nf.format(a.last30Days), ofAccounts),

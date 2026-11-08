@@ -68,6 +68,8 @@ public sealed class ActiveUsers(IServiceScopeFactory scopes, TimeProvider time)
             last7Days = await db.UserActivities.Where(a => a.Day >= weekStart).Select(a => a.UserId).Distinct().CountAsync(cancellationToken),
             last30Days = await db.UserActivities.Where(a => a.Day >= monthStart).Select(a => a.UserId).Distinct().CountAsync(cancellationToken),
             accounts = await db.Users.CountAsync(cancellationToken),
+            // Contas criadas nos últimos 30 dias (UTC), contando hoje.
+            newAccountsLast30Days = await db.Users.CountAsync(u => u.CreatedAtUtc >= new DateTimeOffset(monthStart.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero), cancellationToken),
             daily,
         };
     }
