@@ -14,23 +14,13 @@ services:
     # Só para o health check do deploy.sh; de fora, o acesso é apenas pelo Caddy.
     ports:
       - "127.0.0.1:8080:8080"
+    # O Caddy não é mais deste compose: roda em /srv/proxy (repo miguelsoeth/vps-proxy) e alcança a API
+    # pela rede externa "proxy" (criada uma vez: docker network create proxy), pelo alias abaixo.
+    networks:
+      proxy:
+        aliases:
+          - screencord-api
 
-  caddy:
-    image: caddy:2
-    restart: unless-stopped
-    depends_on:
-      - api
-    env_file: .env
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # Certificados e conta ACME persistem entre deploys (evita o rate limit da Let's Encrypt).
-      - caddy_data:/data
-      - caddy_config:/config
-
-volumes:
-  caddy_data:
-  caddy_config:
+networks:
+  proxy:
+    external: true

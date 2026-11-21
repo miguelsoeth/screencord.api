@@ -41,7 +41,7 @@ jobs:
           echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
 
       - name: Enviar arquivos de deploy
-        run: scp deploy/compose.yml deploy/Caddyfile deploy/deploy.sh deploy/backup.sh "deploy@$DEPLOY_HOST:/srv/screencord/"
+        run: scp deploy/compose.yml deploy/deploy.sh deploy/backup.sh "deploy@$DEPLOY_HOST:/srv/screencord/"
 
       - name: Subir a versão
         run: |

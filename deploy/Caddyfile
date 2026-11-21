@@ -1,5 +1,0 @@
-# HTTPS com certificado da Let's Encrypt para o domínio, emitido e renovado pelo Caddy.
-# O registro A de api.screencord.miguelsoeth.online (DNS na GoDaddy) aponta para o IP do VPS.
-api.screencord.miguelsoeth.online {
-	reverse_proxy api:8080
-}

@@ -128,7 +128,7 @@ dotnet publish src/ScreenCord -c Release -r win-x64 --self-contained true -p:Pub
 
 Distribua `ScreenCord.exe` com `appsettings.json` contendo o `Discord:ClientId` e o `Api:BaseUrl` do servidor.
 
-API: a produção roda em `https://api.screencord.miguelsoeth.online` (Docker + Caddy no VPS) e o deploy é automático ao criar uma tag de versão:
+API: a produção roda em `https://api.screencord.miguelsoeth.online` (Docker no VPS, atrás de um Caddy separado) e o deploy é automático ao criar uma tag de versão:
 
 ```bash
 git tag v2026.11.0
