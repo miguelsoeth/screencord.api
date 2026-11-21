@@ -8,7 +8,7 @@ API central do ScreenCord: ASP.NET Core (.NET 10), SQLite via EF Core, SignalR (
 - `src/ScreenCord.Contracts`: DTOs compartilhados com o app. **Existe uma cópia idêntica no repo do app**: ao mudar um DTO, atualize os dois repositórios e trate como mudança de contrato (ver versionamento).
 - `tests/ScreenCord.Api.Tests`: testes de integração (servidor real em memória, SQLite em memória, Discord simulado).
 - `Dockerfile`: imagem de produção.
-- `deploy/`: arquivos que vão para o VPS (`compose.yml`, `Caddyfile`, `deploy.sh`, `backup.sh`).
+- `deploy/`: arquivos que vão para o VPS (`compose.yml`, `deploy.sh`, `backup.sh`).
 - `.github/workflows/`: `ci.yml`, `release.yml`, `deploy.yml`.
 
 ## Comandos
@@ -65,15 +65,15 @@ Não crie tags para testar o pipeline: cada tag gera release, imagem e deploy em
 
 ## Produção (VPS)
 
-- Host: `154.16.50.20` (VPS Ubuntu). URL pública: `https://api.screencord.miguelsoeth.online` (registro A na GoDaddy, DNS sem proxy: o relay de vídeo por WebSocket não deve passar por CDN). O Caddy emite e renova o certificado da Let's Encrypt para o domínio. Pelo IP não há HTTPS válido; o IP só serve para o SSH (`DEPLOY_HOST`).
+- Host: `154.16.50.20` (VPS Ubuntu). URL pública: `https://api.screencord.miguelsoeth.online` (registro A na GoDaddy, DNS sem proxy: o relay de vídeo por WebSocket não deve passar por CDN). O Caddy (repo privado `vps-proxy`, em `/srv/proxy`) emite e renova o certificado da Let's Encrypt para o domínio. Pelo IP não há HTTPS válido; o IP só serve para o SSH (`DEPLOY_HOST`).
 - Acesso ao servidor (SSH, usuários, chaves, firewall e endurecimento): no `CLAUDE.local.md`, fora do git. Este repositório é público: não documente aqui como entrar no servidor.
 - Diretório `/srv/screencord` (dono `deploy`):
-  - `compose.yml`, `Caddyfile`, `deploy.sh`, `backup.sh`: copiados do repo a cada deploy (edite no repo, não no servidor). O `deploy.sh` recarrega o Caddy, então mudar só o `Caddyfile` basta rodar o workflow Deploy com a versão atual.
+  - `compose.yml`, `deploy.sh`, `backup.sh`: copiados do repo a cada deploy (edite no repo, não no servidor). O Caddy e o `Caddyfile` não são mais daqui: ficam no repo `vps-proxy`.
   - `.env`: `API_VERSION` (a versão atual; o `deploy.sh` reescreve).
   - `api.env`: configuração da API no formato `Secao__Chave=valor` (ex.: `Discord__ClientId`). Não está no git. Ao adicionar uma configuração nova à API, documente aqui e adicione no servidor antes do deploy. A qualidade máxima pelo servidor (padrão 720p a 60 fps ou 1080p a 30 fps, 3000 kbps; o app lê de `GET /limits`) muda pelo painel `/admin`, sem deploy: o ajuste fica na tabela `Settings` e vale sobre o padrão. Opcional, só para mudar o padrão inicial: `RelayLimits__Profiles__N__Height`/`__FrameRate` e `RelayLimits__MaxBitrateKbps`. A banda de saída é a taxa vezes o número de espectadores: a franquia do VPS é de 5 TB/mês e, ao estourar, a porta cai para 10 Mbps. `Observability__DashboardToken` liga o painel em `https://api.screencord.miguelsoeth.online/admin` (gere com `openssl rand -hex 32`; mínimo de 32 caracteres fora do Development, senão a API não sobe; sem ele o painel não existe; 10 tokens errados bloqueiam o IP por 15 min); opcionais `Observability__RetentionDays` e `Observability__MaxEvents`.
   - `data/screencord.db`: banco SQLite em modo WAL. A pasta e o banco são do `deploy` (uid 1000), e o container da API roda com esse uid (`user: "1000:1000"` no `compose.yml`). Não mude o dono: o backup, que roda como `deploy`, precisa escrever o `-shm`.
   - `backups/`: backup diário às 03:15 (cron do `deploy`, guarda 7 dias) e um backup antes de cada deploy (guarda os 10 últimos).
-- Containers: `api` (porta 8080 publicada só em `127.0.0.1`, para o health check) e `caddy` (80/443, proxy reverso com WebSocket). A API confia em `X-Forwarded-For` porque `Proxy__TrustForwardedHeaders=true` está no `compose.yml`; isso só é seguro porque a porta da API não está exposta.
+- Container: `api` (porta 8080 publicada só em `127.0.0.1`, para o health check), na rede Docker externa `proxy`, onde o Caddy de `/srv/proxy` (80/443, proxy reverso com WebSocket) a alcança pelo alias `screencord-api`. A API confia em `X-Forwarded-For` porque `Proxy__TrustForwardedHeaders=true` está no `compose.yml`; isso só é seguro porque a porta da API não está exposta e a rede `proxy` só tem containers de confiança (qualquer container nela alcança a API e poderia forjar esse header).
 - Secrets do GitHub (environment `production`): `DEPLOY_SSH_KEY` (chave privada do usuário `deploy`), `DEPLOY_KNOWN_HOSTS`; variável `DEPLOY_HOST`. O pull da imagem usa o `GITHUB_TOKEN` do job, com login temporário no servidor.
 
 Comandos úteis no servidor (como `deploy`, em `/srv/screencord`):
